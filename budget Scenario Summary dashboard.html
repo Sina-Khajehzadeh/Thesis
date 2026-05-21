@@ -214,6 +214,7 @@ tr:hover td { background: var(--bg-tint); color: var(--text-primary); }
       </div>
       <div class="sidebar-section">
         <button class="btn-reset" id="btn-reset">↺ Reset filters</button>
+        <button class="btn-reset" id="btn-toggle-all" style="margin-top: 8px; background: var(--bg-tint);">Toggle All Sizes</button>
       </div>
     </aside>
 
@@ -425,6 +426,7 @@ class FilterBuilder {
       });
     });
   }
+
   bindReset(defaults) {
     document.getElementById('btn-reset').addEventListener('click', () => {
       document.querySelectorAll('.sidebar input[type="checkbox"]').forEach(i => i.checked = true);
@@ -434,14 +436,29 @@ class FilterBuilder {
       document.querySelector(`.chip[data-metric="${defaults.metric}"]`).classList.add('active');
       this.store.set(defaults);
     });
+
+    // MASTER SELECT/DESELECT ALL SIZES FUNCTION
+    const toggleBtn = document.getElementById('btn-toggle-all');
+    if (toggleBtn) {
+      let allCheckedState = true;
+      toggleBtn.addEventListener('click', () => {
+        allCheckedState = !allCheckedState;
+        const sizeCheckboxes = document.querySelectorAll('#filter-size input[type="checkbox"]');
+        sizeCheckboxes.forEach(cb => cb.checked = allCheckedState);
+        
+        const checkedSizes = allCheckedState ? this.adapter.uniqueValues('Sample_Size').map(x => +x) : [];
+        document.getElementById('count-size').textContent = `${checkedSizes.length}/${sizeCheckboxes.length}`;
+        this.store.set({ sizes: checkedSizes });
+      });
+    }
   }
 }
 
-const FONT_BODY = { family: "'Inter', sans-serif", color: '#515b6e', size: 11 };
-const FONT_MONO = { family: "'JetBrains Mono', monospace", color: '#515b6e', size: 10 };
-const FONT_AXIS_TITLE = { family: "'Inter', sans-serif", color: '#1a2030', size: 12 };
+var FONT_BODY = { family: "'Inter', sans-serif", color: '#515b6e', size: 11 };
+var FONT_MONO = { family: "'JetBrains Mono', monospace", color: '#515b6e', size: 10 };
+var FONT_AXIS_TITLE = { family: "'Inter', sans-serif", color: '#1a2030', size: 12 };
 
-const LAYOUT_BASE = {
+var LAYOUT_BASE = {
   paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
   font: FONT_BODY,
   margin: { t: 18, r: 18, b: 50, l: 60 },
@@ -746,63 +763,6 @@ class Dashboard {
     this.renderTable(summary);
   }
 
-  renderKPIs(summary) {
-      const allModels = ['TabPFN', 'L-SLR', 'Augmented_SLR', 'RandomForest', 'XGBoost', 'CatBoost'];
-      const agg = {};
-      
-      allModels.forEach(m => {
-          const rows = summary.filter(r => r.Model === m);
-          if (!rows.length) { agg[m] = null; return; }
-
-          // If only one sample size is selected, take the value directly.
-          // If multiple are selected, we can decide to show the average OR a specific one.
-          // For now, let's keep it simple:
-          agg[m] = {
-              auc: rows.length === 1 ? rows[0].AUC_Mean : stat.mean(rows.map(r => r.AUC_Mean)),
-              bal: rows.length === 1 ? rows[0].BalancedAccuracy_Mean : stat.mean(rows.map(r => r.BalancedAccuracy_Mean)),
-              brier: rows.length === 1 ? rows[0].Brier_Mean : stat.mean(rows.map(r => r.Brier_Mean)),
-              // Use Budgeted_Total_Runtime_Mean as requested
-              runtime: rows.length === 1 ? rows[0].Budgeted_Total_Runtime_Mean : stat.mean(rows.map(r => r.Budgeted_Total_Runtime_Mean)),
-              // Only sum energy if it makes sense, otherwise show the mean
-              energy: rows.length === 1 ? rows[0].Energy_Mean : stat.mean(rows.map(r => r.Energy_Mean)),
-              budgetUsedPct: rows.length === 1 ? (rows[0].Actual_Total_Runtime_Mean / rows[0].Budgeted_Total_Runtime_Mean * 100) : stat.mean(rows.map(r => r.Actual_Total_Runtime_Mean / r.Budgeted_Total_Runtime_Mean * 100)),
-              trials: rows.length === 1 ? rows[0].Optuna_Completed_Trials_Mean : stat.mean(rows.filter(r => r.Optuna_Completed_Trials_Mean != null).map(r => r.Optuna_Completed_Trials_Mean))
-          };
-      });
-
-    const validModels = allModels.filter(m => agg[m]);
-    const bestAUC = validModels.length ? validModels.reduce((a, b) => agg[a].auc > agg[b].auc ? a : b, validModels[0]) : null;
-    const fmtT = (s) => s >= 60 ? (s / 60).toFixed(1) + 'm' : s.toFixed(1) + 's';
-    const fmtE = (e) => e < 0.001 ? e.toExponential(2) : e.toFixed(5);
-    const fmtTrials = (t) => isFinite(t) ? t.toFixed(1) : '—';
-
-    document.getElementById('kpi-grid').innerHTML = allModels.map(m => {
-      const a = agg[m];
-      if (!a) return `
-        <div class="kpi-card" style="--kpi-color:${this.modelColors[m]};opacity:0.4">
-          <div class="kpi-name">${m}</div>
-          <div class="kpi-mainstat"><span class="kpi-mainvalue">—</span></div>
-          <div class="kpi-sublist"><div class="kpi-subrow">filtered out</div></div>
-        </div>`;
-      const isWinner = m === bestAUC;
-      return `
-        <div class="kpi-card ${isWinner ? 'crown' : ''}" style="--kpi-color:${this.modelColors[m]}">
-          <div class="kpi-name">${m}</div>
-          <div class="kpi-mainstat">
-            <span class="kpi-mainvalue">${a.auc.toFixed(4)}</span>
-            <span class="kpi-mainunit">AUC</span>
-          </div>
-          <div class="kpi-sublist">
-            <div class="kpi-subrow"><span>Bal. Acc</span><strong>${a.bal.toFixed(3)}</strong></div>
-            <div class="kpi-subrow"><span>Brier</span><strong>${a.brier.toFixed(3)}</strong></div>
-            <div class="kpi-subrow"><span>Runtime</span><strong>${fmtT(a.runtime)}</strong></div>
-            <div class="kpi-subrow"><span>Budget used</span><strong>${a.budgetUsedPct.toFixed(0)}%</strong></div>
-            <div class="kpi-subrow"><span>Trials</span><strong>${fmtTrials(a.trials)}</strong></div>
-            <div class="kpi-subrow"><span>Energy</span><strong>${fmtE(a.energy)} kWh</strong></div>
-          </div>
-        </div>`;
-    }).join('');
-  }
 
   renderTable(summary) {
     const cols = [
@@ -819,6 +779,7 @@ class Dashboard {
       { k: 'Optuna_Completed_Trials_Mean', label: 'Trials', fmt: (v) => v != null ? v.toFixed(1) : '—' },
       { k: 'Energy_Mean', label: 'Energy (kWh)', fmt: (v) => v < 0.001 ? v.toExponential(2) : v.toFixed(5) }
     ];
+    // FIXED: Now correctly sorts and slices the FILTERED summary records
     const rows = summary.slice().sort((a, b) => a.Sample_Size - b.Sample_Size || a.Model.localeCompare(b.Model));
     document.getElementById('table-host').innerHTML = `
       <div class="table-wrap">
@@ -832,6 +793,72 @@ class Dashboard {
           }).join('')}</tr>`).join('')}</tbody>
         </table>
       </div>`;
+  }
+
+  renderKPIs(summary) {
+    const allModels = ['TabPFN', 'L-SLR', 'Augmented_SLR', 'RandomForest', 'XGBoost', 'CatBoost'];
+    const agg = {};
+    const validModels = [];
+
+    allModels.forEach(m => {
+      const rows = summary.filter(r => r.Model === m);
+      if (!rows.length) { agg[m] = null; return; }
+      
+      // Target the direct row data cleanly without pooling/averaging outside selected filters
+      agg[m] = {
+        auc: rows[0].AUC_Mean,
+        bal: rows[0].BalancedAccuracy_Mean,
+        brier: rows[0].Brier_Mean,
+        runtime: rows[0].Budgeted_Total_Runtime_Mean, // Targeted runtime swap
+        energy: rows[0].Energy_Mean,
+        budgetUsedPct: (rows[0].Actual_Total_Runtime_Mean / rows[0].Budgeted_Total_Runtime_Mean * 100),
+        trials: rows[0].Optuna_Completed_Trials_Mean
+      };
+      validModels.push(m);
+    });
+
+    // Dynamic Top-3 Ranking System for AUC
+    const top3Models = validModels
+      .map(m => ({ name: m, auc: agg[m].auc }))
+      .sort((a, b) => b.auc - a.auc)
+      .slice(0, 3)
+      .map(x => x.name);
+
+    const fmtT = (s) => s >= 60 ? (s / 60).toFixed(1) + 'm' : s.toFixed(1) + 's';
+    const fmtE = (e) => e < 0.001 ? e.toExponential(2) : e.toFixed(5);
+    const fmtTrials = (t) => t != null && isFinite(t) ? t.toFixed(1) : '—';
+
+    document.getElementById('kpi-grid').innerHTML = allModels.map(m => {
+      const a = agg[m];
+      if (!a) return `
+        <div class="kpi-card" style="--kpi-color:${this.modelColors[m]};opacity:0.4">
+          <div class="kpi-name">${m}</div>
+          <div class="kpi-mainstat"><span class="kpi-mainvalue">—</span></div>
+          <div class="kpi-sublist"><div class="kpi-subrow">filtered out</div></div>
+        </div>`;
+      
+      // Apply structural star class if model sits in the top 3
+      const isTopPerform = top3Models.includes(m);
+      const awardBadge = isTopPerform ? `<div class="kpi-card crown" style="position:absolute; top:8px; right:10px; font-family:var(--font-mono); font-size:8.5px; font-weight:700; color:var(--success); background:rgba(74,140,82,0.1); padding:2px 6px; border-radius:8px;">★ BEST</div>` : '';
+
+      return `
+        <div class="kpi-card" style="--kpi-color:${this.modelColors[m]}; position:relative;">
+          ${awardBadge}
+          <div class="kpi-name">${m}</div>
+          <div class="kpi-mainstat">
+            <span class="kpi-mainvalue">${a.auc.toFixed(4)}</span>
+            <span class="kpi-mainunit">AUC</span>
+          </div>
+          <div class="kpi-sublist">
+            <div class="kpi-subrow"><span>Bal. Acc</span><strong>${a.bal.toFixed(4)}</strong></div>
+            <div class="kpi-subrow"><span>Brier</span><strong>${a.brier.toFixed(4)}</strong></div>
+            <div class="kpi-subrow"><span>Budgeted Runtime</span><strong>${fmtT(a.runtime)}</strong></div>
+            <div class="kpi-subrow"><span>Budget used</span><strong>${a.budgetUsedPct.toFixed(0)}%</strong></div>
+            <div class="kpi-subrow"><span>Trials</span><strong>${fmtTrials(a.trials)}</strong></div>
+            <div class="kpi-subrow"><span>Energy</span><strong>${fmtE(a.energy)} kWh</strong></div>
+          </div>
+        </div>`;
+    }).join('');
   }
 }
 
