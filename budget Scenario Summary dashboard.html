@@ -747,21 +747,28 @@ class Dashboard {
   }
 
   renderKPIs(summary) {
-    const allModels = ['TabPFN', 'L-SLR', 'Augmented_SLR', 'RandomForest', 'XGBoost', 'CatBoost'];
-    const agg = {};
-    allModels.forEach(m => {
-      const rows = summary.filter(r => r.Model === m);
-      if (!rows.length) { agg[m] = null; return; }
-      agg[m] = {
-        auc: stat.mean(rows.map(r => r.AUC_Mean)),
-        bal: stat.mean(rows.map(r => r.BalancedAccuracy_Mean)),
-        brier: stat.mean(rows.map(r => r.Brier_Mean)),
-        runtime: stat.mean(rows.map(r => r.Total_Runtime_Mean)),
-        energy: stat.sum(rows.map(r => r.Energy_Mean)),
-        budgetUsedPct: stat.mean(rows.map(r => r.Actual_Total_Runtime_Mean / r.Budgeted_Total_Runtime_Mean * 100)),
-        trials: stat.mean(rows.filter(r => r.Optuna_Completed_Trials_Mean != null).map(r => r.Optuna_Completed_Trials_Mean))
-      };
-    });
+      const allModels = ['TabPFN', 'L-SLR', 'Augmented_SLR', 'RandomForest', 'XGBoost', 'CatBoost'];
+      const agg = {};
+      
+      allModels.forEach(m => {
+          const rows = summary.filter(r => r.Model === m);
+          if (!rows.length) { agg[m] = null; return; }
+
+          // If only one sample size is selected, take the value directly.
+          // If multiple are selected, we can decide to show the average OR a specific one.
+          // For now, let's keep it simple:
+          agg[m] = {
+              auc: rows.length === 1 ? rows[0].AUC_Mean : stat.mean(rows.map(r => r.AUC_Mean)),
+              bal: rows.length === 1 ? rows[0].BalancedAccuracy_Mean : stat.mean(rows.map(r => r.BalancedAccuracy_Mean)),
+              brier: rows.length === 1 ? rows[0].Brier_Mean : stat.mean(rows.map(r => r.Brier_Mean)),
+              // Use Budgeted_Total_Runtime_Mean as requested
+              runtime: rows.length === 1 ? rows[0].Budgeted_Total_Runtime_Mean : stat.mean(rows.map(r => r.Budgeted_Total_Runtime_Mean)),
+              // Only sum energy if it makes sense, otherwise show the mean
+              energy: rows.length === 1 ? rows[0].Energy_Mean : stat.mean(rows.map(r => r.Energy_Mean)),
+              budgetUsedPct: rows.length === 1 ? (rows[0].Actual_Total_Runtime_Mean / rows[0].Budgeted_Total_Runtime_Mean * 100) : stat.mean(rows.map(r => r.Actual_Total_Runtime_Mean / r.Budgeted_Total_Runtime_Mean * 100)),
+              trials: rows.length === 1 ? rows[0].Optuna_Completed_Trials_Mean : stat.mean(rows.filter(r => r.Optuna_Completed_Trials_Mean != null).map(r => r.Optuna_Completed_Trials_Mean))
+          };
+      });
 
     const validModels = allModels.filter(m => agg[m]);
     const bestAUC = validModels.length ? validModels.reduce((a, b) => agg[a].auc > agg[b].auc ? a : b, validModels[0]) : null;
