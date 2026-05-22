@@ -221,7 +221,7 @@ tr:hover td { background: var(--bg-tint); color: var(--text-primary); }
     <main class="content">
 
       <div class="section-header">
-        <h1 class="section-title">Model Performances</h1>
+        <h1 class="section-title">Model leaderboard</h1>
         <span class="section-subtitle">averaged across all selected sample sizes</span>
       </div>
       <div class="kpi-grid" id="kpi-grid"></div>
@@ -236,7 +236,7 @@ tr:hover td { background: var(--bg-tint); color: var(--text-primary); }
           <span class="panel-note">10 iterations per cell</span>
         </div>
         <div class="panel-caveat">
-          Original 10-iteration count preserved for the box's median and IQRs.
+          Source file contains aggregated summaries (μ, σ, 95% CI), not raw iterations. Per-iteration values are reconstructed from reported mean and SD with the original 10-iteration count preserved, so each box's median and IQR match the source statistics.
         </div>
         <div id="chart-allmetrics-box" class="chart chart-mega"></div>
       </div>
