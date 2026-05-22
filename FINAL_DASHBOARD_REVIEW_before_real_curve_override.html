@@ -8176,7 +8176,7 @@ tr:hover td { background: var(--bg-tint); color: var(--text-primary); }
             <span class="panel-note">extracted FPR ↔ mean TPR</span>
           </div>
           <div class="panel-caveat">
-            Extracted directly from the original Plotly ROC HTML files. Each curve shows false-positive rate versus mean true-positive rate.
+            Each curve shows false-positive rate versus mean true-positive rate.
           </div>
           <div id="chart-roc" class="chart chart-tall"></div>
         </div>
@@ -8186,7 +8186,7 @@ tr:hover td { background: var(--bg-tint); color: var(--text-primary); }
             <span class="panel-note">extracted predicted ↔ observed</span>
           </div>
           <div class="panel-caveat">
-            Extracted directly from the original Plotly calibration HTML files. Each curve shows predicted probability versus observed probability.
+            Each curve shows predicted probability versus observed probability.
           </div>
           <div id="chart-calibration" class="chart chart-tall"></div>
         </div>
@@ -8799,24 +8799,95 @@ charts.register('calibration', {
 
 charts.register('scaling', { render(elId, summary, ctx) {
   const traces = ctx.models.map(m => {
-    const rows = summary.filter(r => r.Model === m).sort((a, b) => a.Sample_Size - b.Sample_Size);
+    const rows = summary
+      .filter(r => r.Model === m)
+      .sort((a, b) => a.Sample_Size - b.Sample_Size);
+
+    const meanKey = `${ctx.metric}_Mean`;
+    const ciKey = `${ctx.metric}_CI95_pm`;
+
     return {
       x: rows.map(r => r.Sample_Size),
-      y: rows.map(r => r[`${ctx.metric}_Mean`]),
-      error_y: { type: 'data', array: rows.map(r => r[`${ctx.metric}_CI95_pm`]), color: ctx.modelColors[m], thickness: 1, width: 4 },
-      mode: 'lines+markers', type: 'scatter', name: m,
-      line: { color: ctx.modelColors[m], width: 2 },
-      marker: { color: ctx.modelColors[m], size: 7, line: { color: '#fff', width: 1 } },
-      hovertemplate: `<b>${m}</b><br>N = %{x}<br>${ctx.metric} = %{y:.4f}<extra></extra>`
+      y: rows.map(r => r[meanKey]),
+
+      // CI is no longer drawn physically on the chart.
+      // It is only stored for hover display.
+      customdata: rows.map(r => {
+        const mean = Number(r[meanKey]);
+        const ci = Number(r[ciKey]);
+
+        const lower = Number.isFinite(mean) && Number.isFinite(ci)
+          ? mean - ci
+          : null;
+
+        const upper = Number.isFinite(mean) && Number.isFinite(ci)
+          ? mean + ci
+          : null;
+
+        return [ci, lower, upper];
+      }),
+
+      mode: 'lines+markers',
+      type: 'scatter',
+      name: m,
+
+      line: {
+        color: ctx.modelColors[m],
+        width: 2
+      },
+
+      marker: {
+        color: ctx.modelColors[m],
+        size: 7,
+        line: {
+          color: '#fff',
+          width: 1
+        }
+      },
+
+      hovertemplate:
+        `<b>${m}</b><br>` +
+        `N = %{x:,}<br>` +
+        `${ctx.metric} = %{y:.4f}<br>` +
+        `95% CI = ±%{customdata[0]:.4f}<br>` +
+        `CI range = [%{customdata[1]:.4f}, %{customdata[2]:.4f}]` +
+        `<extra></extra>`
     };
   });
+
   Plotly.react(elId, traces, {
     ...LAYOUT_BASE,
     showlegend: true,
-    legend: { font: FONT_MONO, orientation: 'h', y: -0.22, x: 0.5, xanchor: 'center' },
-    margin: { ...LAYOUT_BASE.margin, b: 80 },
-    xaxis: { ...LAYOUT_BASE.xaxis, type: 'log', title: { text: 'Sample size (log)', font: FONT_AXIS_TITLE } },
-    yaxis: { ...LAYOUT_BASE.yaxis, title: { text: `${ctx.metric} (mean ± 95% CI)`, font: FONT_AXIS_TITLE } }
+
+    legend: {
+      font: FONT_MONO,
+      orientation: 'h',
+      y: -0.22,
+      x: 0.5,
+      xanchor: 'center'
+    },
+
+    margin: {
+      ...LAYOUT_BASE.margin,
+      b: 80
+    },
+
+    xaxis: {
+      ...LAYOUT_BASE.xaxis,
+      type: 'log',
+      title: {
+        text: 'Sample size (log)',
+        font: FONT_AXIS_TITLE
+      }
+    },
+
+    yaxis: {
+      ...LAYOUT_BASE.yaxis,
+      title: {
+        text: `${ctx.metric} mean`,
+        font: FONT_AXIS_TITLE
+      }
+    }
   }, PLOT_CONFIG);
 }});
 
