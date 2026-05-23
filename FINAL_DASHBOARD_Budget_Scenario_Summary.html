@@ -175,6 +175,189 @@ tr:hover td { background: var(--bg-tint); color: var(--text-primary); }
   .kpi-grid { grid-template-columns: repeat(2, 1fr); }
 }
 </style>
+
+<style id="overall-rank-permanent-style">
+  .overall-rank-section {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    margin-top: 34px;
+  }
+
+  .overall-rank-panel {
+    background: var(--bg-surface, #ffffff);
+    border: 1px solid var(--border-subtle, #e3e6ec);
+    border-radius: var(--radius, 8px);
+    padding: 18px 20px 16px;
+    box-shadow: var(--shadow-card, 0 1px 2px rgba(15,23,42,0.04));
+  }
+
+  .overall-rank-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+    gap: 14px;
+    align-items: start;
+  }
+
+  .ort-card {
+    border: 1px solid var(--border-subtle, #e3e6ec);
+    border-radius: 8px;
+    background: #fff;
+    overflow: hidden;
+    min-width: 0;
+  }
+
+  .ort-card-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 9px 10px;
+    background: var(--bg-tint, #f1f3f6);
+    border-bottom: 1px solid var(--border-subtle, #e3e6ec);
+  }
+
+  .ort-card-title {
+    font-family: var(--font-display, Georgia, serif);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary, #1a2030);
+  }
+
+  .ort-card-note {
+    font-family: var(--font-mono, monospace);
+    font-size: 8.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-tertiary, #7a8294);
+    white-space: nowrap;
+  }
+
+  .ort-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: auto;
+    font-family: var(--font-mono, monospace);
+    font-size: 9.5px;
+  }
+
+  .ort-table th {
+    padding: 7px 4px;
+    background: #fff;
+    border-bottom: 1px solid var(--border-subtle, #e3e6ec);
+    color: var(--text-tertiary, #7a8294);
+    text-align: center;
+    font-size: 8.5px;
+    letter-spacing: 0.05em;
+  }
+
+  .ort-table th:first-child {
+    min-width: 112px;
+    width: 112px;
+    text-align: left;
+    padding-left: 8px;
+  }
+
+  .ort-table td {
+    padding: 6px 4px;
+    border-bottom: 1px solid var(--border-subtle, #e3e6ec);
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  .ort-table tr:last-child td {
+    border-bottom: none;
+  }
+
+  .ort-model {
+    min-width: 112px;
+    width: 112px;
+    max-width: none;
+    overflow: visible;
+    text-overflow: clip;
+    white-space: nowrap;
+    text-align: left !important;
+    color: var(--text-primary, #1a2030);
+    font-weight: 600;
+    font-size: 9.2px;
+    letter-spacing: -0.02em;
+    padding-left: 8px !important;
+  }
+
+  .ort-model-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    margin-right: 5px;
+    vertical-align: middle;
+  }
+
+  .ort-dot-cell {
+    width: 26px;
+    min-width: 24px;
+    padding-left: 3px !important;
+    padding-right: 3px !important;
+  }
+
+  .ort-dot {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+  }
+
+  .ort-dot-on {
+    background: #2563b3;
+    box-shadow: 0 0 0 2px rgba(37,99,179,0.12);
+  }
+
+  .ort-dot-off {
+    background: transparent;
+    border: 1px solid #c9cdd6;
+  }
+
+  .ort-overall {
+    width: 42px;
+    min-width: 40px;
+    font-weight: 700;
+    color: var(--accent, #2563b3);
+  }
+
+  .ort-legend {
+    margin-top: 10px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    font-family: var(--font-mono, monospace);
+    font-size: 10px;
+    color: var(--text-secondary, #515b6e);
+  }
+
+  .ort-legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  @media (max-width: 1200px) {
+    .overall-rank-grid {
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    }
+
+    .ort-table {
+      font-size: 9px;
+    }
+
+    .ort-model {
+      min-width: 105px;
+      width: 105px;
+      font-size: 8.8px;
+    }
+  }
+</style>
+
 </head>
 <body>
 
@@ -9667,5 +9850,456 @@ class Dashboard {
   window._dash = { adapter, store, dash };
 })();
 </script>
+
+
+<script id="overall-rank-permanent-script">
+(() => {
+  const MODEL_ORDER = [
+    "TabPFN",
+    "L-SLR",
+    "RandomForest",
+    "XGBoost",
+    "CatBoost",
+    "Augmented_SLR"
+  ];
+
+  const MODEL_COLORS = {
+    "TabPFN": "#2563b3",
+    "L-SLR": "#6b9bd1",
+    "RandomForest": "#4a8c52",
+    "XGBoost": "#c08f3e",
+    "CatBoost": "#b8553d",
+    "Augmented_SLR": "#8b6fa8"
+  };
+
+  const METRICS = [
+    { key: "AUC_Mean", label: "AUC", full: "AUC", direction: "desc" },
+    { key: "Brier_Mean", label: "Brier", full: "Brier Score", direction: "asc" },
+    { key: "BalancedAccuracy_Mean", label: "BalAcc", full: "Balanced Accuracy", direction: "desc" },
+    { key: "Sensitivity_Mean", label: "Sens", full: "Sensitivity", direction: "desc" },
+    { key: "Precision_Mean", label: "Prec", full: "Precision", direction: "desc" },
+    { key: "Energy_Mean", label: "Energy", full: "Energy consumption", direction: "asc" }
+  ];
+
+  function getSummaryData() {
+    const summaryEl = document.getElementById("summary-data");
+
+    if (!summaryEl) {
+      console.error("Could not find <script id='summary-data'>.");
+      return [];
+    }
+
+    try {
+      return JSON.parse(summaryEl.textContent || "[]");
+    } catch (err) {
+      console.error("Could not parse summary-data JSON.", err);
+      return [];
+    }
+  }
+
+  function safeNumber(v) {
+    const x = Number(v);
+    return Number.isFinite(x) ? x : null;
+  }
+
+  function formatN(n) {
+    const v = Number(n);
+    if (!Number.isFinite(v)) return String(n);
+
+    if (v >= 1000) {
+      const k = v / 1000;
+      return Number.isInteger(k) ? `${k}k` : `${k.toFixed(1)}k`;
+    }
+
+    return String(v);
+  }
+
+  function availableSizes(summary) {
+    return [...new Set(
+      summary
+        .map(r => Number(r.Sample_Size))
+        .filter(v => Number.isFinite(v))
+    )].sort((a, b) => a - b);
+  }
+
+  // ============================================================
+  // CRITICAL FIX:
+  // Read selected filters from the dashboard's actual FilterStore.
+  // Do not infer them from DOM labels/classes.
+  // ============================================================
+
+  function getDashboardState(summary) {
+    const fallback = {
+      models: MODEL_ORDER,
+      sizes: availableSizes(summary),
+      metric: "AUC"
+    };
+
+    if (!window._dash || !window._dash.store || typeof window._dash.store.get !== "function") {
+      return fallback;
+    }
+
+    const state = window._dash.store.get();
+
+    return {
+      // Respect empty model/sample-size selections.
+      // If the user unselects all sample sizes, show no ranking tables.
+      models: Array.isArray(state.models)
+        ? state.models
+        : fallback.models,
+
+      sizes: Array.isArray(state.sizes)
+        ? state.sizes.map(Number).filter(v => Number.isFinite(v))
+        : fallback.sizes,
+
+      metric: state.metric || fallback.metric
+    };
+  }
+
+  function metricValue(row, metric) {
+    return safeNumber(row?.[metric.key]);
+  }
+
+  function buildRankingForSize(summary, sampleSize, visibleModels) {
+    // Rank is computed among all six models, not only visible models.
+    // The visible model filter only controls which rows are displayed.
+    const rows = MODEL_ORDER
+      .map(model => summary.find(r =>
+        r.Model === model &&
+        Number(r.Sample_Size) === Number(sampleSize)
+      ))
+      .filter(Boolean);
+
+    const scoreMap = new Map();
+
+    rows.forEach(row => {
+      scoreMap.set(row.Model, {
+        model: row.Model,
+        row,
+        hits: {},
+        overall: 0
+      });
+    });
+
+    METRICS.forEach(metric => {
+      const ranked = rows
+        .map(row => ({
+          model: row.Model,
+          value: metricValue(row, metric)
+        }))
+        .filter(d => d.value !== null)
+        .sort((a, b) => {
+          if (metric.direction === "asc") return a.value - b.value;
+          return b.value - a.value;
+        });
+
+      const top3 = new Set(ranked.slice(0, 3).map(d => d.model));
+
+      rows.forEach(row => {
+        const obj = scoreMap.get(row.Model);
+        const isTop3 = top3.has(row.Model);
+
+        obj.hits[metric.label] = isTop3;
+
+        if (isTop3) obj.overall += 1;
+      });
+    });
+
+    return [...scoreMap.values()]
+      .filter(d => visibleModels.includes(d.model))
+      .sort((a, b) => {
+        if (b.overall !== a.overall) return b.overall - a.overall;
+        return MODEL_ORDER.indexOf(a.model) - MODEL_ORDER.indexOf(b.model);
+      });
+  }
+
+  function dotCell(isTop3, value, metricFull) {
+    const valText = value === null ? "NA" : value.toFixed(4);
+
+    if (isTop3) {
+      return `
+        <td class="ort-dot-cell" title="${metricFull}: ${valText} | Top-3">
+          <span class="ort-dot ort-dot-on"></span>
+        </td>
+      `;
+    }
+
+    return `
+      <td class="ort-dot-cell" title="${metricFull}: ${valText} | Not top-3">
+        <span class="ort-dot ort-dot-off"></span>
+      </td>
+    `;
+  }
+
+  function renderTableCard(sampleSize, rankingRows) {
+    const bodyRows = rankingRows.map(d => {
+      const row = d.row;
+
+      const cells = METRICS.map(metric => {
+        const value = metricValue(row, metric);
+        return dotCell(d.hits[metric.label], value, metric.full);
+      }).join("");
+
+      return `
+        <tr>
+          <td class="ort-model">
+            <span class="ort-model-dot" style="background:${MODEL_COLORS[d.model]}"></span>
+            ${d.model}
+          </td>
+          ${cells}
+          <td class="ort-overall">${d.overall}</td>
+        </tr>
+      `;
+    }).join("");
+
+    return `
+      <div class="ort-card">
+        <div class="ort-card-header">
+          <div class="ort-card-title">N = ${formatN(sampleSize)}</div>
+          <div class="ort-card-note">Top-3 count</div>
+        </div>
+
+        <table class="ort-table">
+          <thead>
+            <tr>
+              <th>Model</th>
+              ${METRICS.map(m => `<th title="${m.full}">${m.label}</th>`).join("")}
+              <th>Overall</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${bodyRows}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  function findTableSectionEnd() {
+    // Your visible section title is "Aggregated table", not exactly "Table".
+    const tableTitle = [...document.querySelectorAll(".section-title")]
+      .find(el => {
+        const txt = el.textContent.trim().toLowerCase();
+        return txt === "table" || txt === "aggregated table" || txt.includes("table");
+      });
+
+    if (!tableTitle) return null;
+
+    const tableHeader = tableTitle.closest(".section-header") || tableTitle;
+    let node = tableHeader.nextElementSibling;
+
+    while (node) {
+      if (
+        node.classList?.contains("panel") ||
+        node.classList?.contains("table-wrap") ||
+        node.querySelector?.("#table-host") ||
+        node.querySelector?.("table")
+      ) {
+        return node;
+      }
+
+      if (node.classList?.contains("section-header")) break;
+
+      node = node.nextElementSibling;
+    }
+
+    return tableHeader;
+  }
+
+  function placeSectionUnderTable(sectionEl) {
+    const existing = document.getElementById("overall-rank-section");
+    if (existing) existing.remove();
+
+    const tableEndNode = findTableSectionEnd();
+
+    if (tableEndNode && tableEndNode.parentNode) {
+      tableEndNode.parentNode.insertBefore(sectionEl, tableEndNode.nextSibling);
+      return;
+    }
+
+    const content = document.querySelector(".content") || document.body;
+    content.appendChild(sectionEl);
+  }
+
+  function renderOverallRankTables() {
+    const summary = getSummaryData();
+    if (!summary.length) return;
+
+    const state = getDashboardState(summary);
+
+    const selectedSizes = state.sizes
+      .map(Number)
+      .filter(v => Number.isFinite(v))
+      .sort((a, b) => a - b);
+
+    const selectedModels = MODEL_ORDER.filter(m => state.models.includes(m));
+
+    const cards = selectedSizes.map(size => {
+      const rankingRows = buildRankingForSize(summary, size, selectedModels);
+      return renderTableCard(size, rankingRows);
+    }).join("");
+
+    const section = document.createElement("div");
+    section.id = "overall-rank-section";
+    section.className = "overall-rank-section";
+
+    section.innerHTML = `
+      <div class="section-header">
+        <h2 class="section-title">Overall top-3 ranking</h2>
+        <div class="section-subtitle">Performance points × selected sample sizes</div>
+      </div>
+
+      <div class="overall-rank-panel">
+        <div class="panel-header">
+          <div class="panel-title">Top-3 performance summary by sample size</div>
+          <div class="panel-note">Overall = sum of blue points</div>
+        </div>
+
+        <div class="panel-caveat">
+          Blue point = model ranked in the top 3 among all six models for that metric.
+          For Brier and Energy, lower is better; for AUC, balanced accuracy, sensitivity, and precision, higher is better.
+        </div>
+
+        <div class="overall-rank-grid">
+          ${cards}
+        </div>
+
+        <div class="ort-legend">
+          <span><span class="ort-dot ort-dot-on"></span> Top-3 for metric</span>
+          <span><span class="ort-dot ort-dot-off"></span> Not top-3</span>
+          <span>Overall = top-3 count across six criteria</span>
+        </div>
+      </div>
+    `;
+
+    placeSectionUnderTable(section);
+  }
+
+  function attachOverallRankListeners() {
+    // Subscribe directly to the real dashboard FilterStore.
+    // This is the key wiring.
+    if (
+      window._dash &&
+      window._dash.store &&
+      typeof window._dash.store.subscribe === "function" &&
+      !window.__overallRankStoreSubscribed
+    ) {
+      window._dash.store.subscribe(() => {
+        setTimeout(renderOverallRankTables, 0);
+      });
+
+      window.__overallRankStoreSubscribed = true;
+    }
+
+    // Fallback DOM listeners, just in case.
+    if (!window.__overallRankFallbackListenersAttached) {
+      document.addEventListener("change", event => {
+        if (
+          event.target.matches("#filter-model input") ||
+          event.target.matches("#filter-size input")
+        ) {
+          setTimeout(renderOverallRankTables, 120);
+        }
+      });
+
+      document.addEventListener("click", event => {
+        if (
+          event.target.closest("#btn-reset") ||
+          event.target.closest("#btn-toggle-all")
+        ) {
+          setTimeout(renderOverallRankTables, 180);
+        }
+      });
+
+      window.__overallRankFallbackListenersAttached = true;
+    }
+  }
+
+  function initOverallRankSection() {
+    // Wait until main dashboard has created window._dash.
+    const maxAttempts = 50;
+    let attempts = 0;
+
+    const timer = setInterval(() => {
+      attempts += 1;
+
+      if (window._dash && window._dash.store) {
+        clearInterval(timer);
+        renderOverallRankTables();
+        attachOverallRankListeners();
+        window.renderOverallRankTables = renderOverallRankTables;
+      }
+
+      if (attempts >= maxAttempts) {
+        clearInterval(timer);
+        console.warn("Overall ranking could not find window._dash.store; rendering with fallback filters.");
+        renderOverallRankTables();
+        attachOverallRankListeners();
+        window.renderOverallRankTables = renderOverallRankTables;
+      }
+    }, 100);
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initOverallRankSection);
+  } else {
+    initOverallRankSection();
+  }
+})();
+</script>
+
+
+
+<script id="header-badge-runtime-fix">
+(() => {
+  function deepestMatchingElement(pattern) {
+    const candidates = [...document.querySelectorAll("body *")]
+      .filter(el => {
+        const text = (el.textContent || "").trim();
+        return pattern.test(text);
+      });
+
+    return candidates.find(el =>
+      ![...el.children].some(child =>
+        pattern.test((child.textContent || "").trim())
+      )
+    );
+  }
+
+  function fixHeaderBadges() {
+    const scenarioEl = deepestMatchingElement(/^Scenario:\s*MCAR_Full$/);
+
+    if (scenarioEl) {
+      scenarioEl.textContent = "Scenario: TabPFN Budgeting Runtime";
+    }
+
+    const mcarEl = deepestMatchingElement(/^MCAR:\s*0%$/);
+
+    if (mcarEl) {
+      mcarEl.remove();
+    }
+  }
+
+  // Run immediately
+  fixHeaderBadges();
+
+  // Run again after dashboard scripts finish rendering
+  setTimeout(fixHeaderBadges, 100);
+  setTimeout(fixHeaderBadges, 500);
+  setTimeout(fixHeaderBadges, 1200);
+
+  // Keep it fixed if dashboard rerenders the header
+  const observer = new MutationObserver(() => {
+    fixHeaderBadges();
+  });
+
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    characterData: true
+  });
+})();
+</script>
+
 </body>
 </html>
