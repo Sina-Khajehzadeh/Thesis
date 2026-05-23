@@ -8206,7 +8206,7 @@ tr:hover td { background: var(--bg-tint); color: var(--text-primary); }
         </div>
         <div class="panel">
           <div class="panel-header">
-            <span class="panel-title">Runtime vs sample size</span>
+            <span class="panel-title">Total Budgeted runtime vs sample size</span>
             <span class="panel-note">log–log · mean per N</span>
           </div>
           <div id="chart-runtime-scaling" class="chart"></div>
@@ -8220,7 +8220,7 @@ tr:hover td { background: var(--bg-tint); color: var(--text-primary); }
       <div class="grid-2">
         <div class="panel">
           <div class="panel-header">
-            <span class="panel-title">Budget utilization (%)</span>
+            <span class="panel-title">Runtime composition vs TabPFN tuning budget</span>
             <span class="panel-note">100% = on-budget</span>
           </div>
           <div id="chart-budget-util" class="chart"></div>
@@ -8248,7 +8248,7 @@ tr:hover td { background: var(--bg-tint); color: var(--text-primary); }
         </div>
         <div class="panel">
           <div class="panel-header">
-            <span class="panel-title">Energy by model</span>
+            <span class="panel-title">Energy consumption by sample size</span>
             <span class="panel-note">total kWh across selected N (log)</span>
           </div>
           <div id="chart-energy" class="chart"></div>
@@ -8893,50 +8893,382 @@ charts.register('scaling', { render(elId, summary, ctx) {
 
 charts.register('runtime-scaling', { render(elId, summary, ctx) {
   const traces = ctx.models.map(m => {
-    const rows = summary.filter(r => r.Model === m).sort((a, b) => a.Sample_Size - b.Sample_Size);
+    const rows = summary
+      .filter(r => r.Model === m)
+      .sort((a, b) => a.Sample_Size - b.Sample_Size);
+
     return {
       x: rows.map(r => r.Sample_Size),
-      y: rows.map(r => r.Total_Runtime_Mean),
-      mode: 'lines+markers', type: 'scatter', name: m,
-      line: { color: ctx.modelColors[m], width: 2 },
-      marker: { color: ctx.modelColors[m], size: 7, line: { color: '#fff', width: 1 } },
-      hovertemplate: `<b>${m}</b><br>N = %{x}<br>Runtime = %{y:.2f}s<extra></extra>`
+
+      // Correct logic:
+      // show budgeted/capped runtime, not actual total runtime.
+      y: rows.map(r => {
+        const v = Number(r.Budgeted_Total_Runtime_Mean);
+        return Number.isFinite(v) && v > 0 ? v : null;
+      }),
+
+      customdata: rows.map(r => [
+        Number(r.Budgeted_Total_Runtime_Mean),
+        Number(r.Budgeted_Total_Runtime_CI95_pm),
+        Number(r.Actual_Total_Runtime_Mean),
+        Number(r.TabPFN_Budget_Used_Mean),
+        Number(r.Optuna_Tuning_Time_Capped_Mean),
+        Number(r.Final_Fit_Predict_Time_Mean)
+      ]),
+
+      mode: 'lines+markers',
+      type: 'scatter',
+      name: m,
+
+      line: {
+        color: ctx.modelColors[m],
+        width: 2
+      },
+
+      marker: {
+        color: ctx.modelColors[m],
+        size: 7,
+        line: {
+          color: '#fff',
+          width: 1
+        }
+      },
+
+      hovertemplate:
+        `<b>${m}</b><br>` +
+        `N = %{x:,}<br>` +
+        `Budgeted runtime = %{customdata[0]:.3f}s<br>` +
+        `95% CI = ±%{customdata[1]:.3f}s<br>` +
+        `Actual total runtime = %{customdata[2]:.3f}s<br>` +
+        `TabPFN budget runtime = %{customdata[3]:.3f}s<br>` +
+        `Capped tuning time = %{customdata[4]:.3f}s<br>` +
+        `Final fit/predict time = %{customdata[5]:.3f}s` +
+        `<extra></extra>`
     };
   });
+
   Plotly.react(elId, traces, {
     ...LAYOUT_BASE,
     showlegend: true,
-    legend: { font: FONT_MONO, orientation: 'h', y: -0.22, x: 0.5, xanchor: 'center' },
-    margin: { ...LAYOUT_BASE.margin, b: 80 },
-    xaxis: { ...LAYOUT_BASE.xaxis, type: 'log', title: { text: 'Sample size (log)', font: FONT_AXIS_TITLE } },
-    yaxis: { ...LAYOUT_BASE.yaxis, type: 'log', title: { text: 'Runtime (s, log)', font: FONT_AXIS_TITLE } }
+
+    legend: {
+      font: FONT_MONO,
+      orientation: 'h',
+      y: -0.25,
+      x: 0.5,
+      xanchor: 'center'
+    },
+
+    margin: {
+      ...LAYOUT_BASE.margin,
+      b: 85
+    },
+
+    xaxis: {
+      ...LAYOUT_BASE.xaxis,
+      type: 'log',
+      title: {
+        text: 'Sample size (log)',
+        font: FONT_AXIS_TITLE
+      }
+    },
+
+    yaxis: {
+      ...LAYOUT_BASE.yaxis,
+      type: 'log',
+      title: {
+        text: 'Budgeted runtime (s, log)',
+        font: FONT_AXIS_TITLE
+      }
+    }
   }, PLOT_CONFIG);
 }});
 
 charts.register('budget-util', { render(elId, summary, ctx) {
-  const traces = ctx.models.map(m => {
-    const rows = summary.filter(r => r.Model === m).sort((a, b) => a.Sample_Size - b.Sample_Size);
+
+  const MODEL_ORDER = [
+    "TabPFN",
+    "L-SLR",
+    "RandomForest",
+    "XGBoost",
+    "CatBoost",
+    "Augmented_SLR"
+  ];
+
+  function safeNumber(v) {
+    const x = Number(v);
+    return Number.isFinite(x) ? x : null;
+  }
+
+  function rgbaFromHex(hex, alpha) {
+    if (!hex || typeof hex !== "string" || !hex.startsWith("#") || hex.length !== 7) {
+      return hex;
+    }
+
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+
+  function formatN(n) {
+    const v = Number(n);
+
+    if (!Number.isFinite(v)) return String(n);
+
+    if (v >= 1000) {
+      const k = v / 1000;
+      return Number.isInteger(k) ? `${k}k` : `${k.toFixed(1)}k`;
+    }
+
+    return String(v);
+  }
+
+  const availableSizes = [...new Set(
+    summary
+      .map(r => Number(r.Sample_Size))
+      .filter(v => Number.isFinite(v))
+  )].sort((a, b) => a - b);
+
+  if (!availableSizes.length) {
+    Plotly.react(elId, [], LAYOUT_BASE, PLOT_CONFIG);
+    return;
+  }
+
+  // Design choice:
+  // Keep the plot readable by showing one sample size at a time.
+  // If several sample-size chips are selected, use the largest selected N.
+  const activeSize = availableSizes[availableSizes.length - 1];
+
+  const rowsAtN = summary.filter(r =>
+    Number(r.Sample_Size) === Number(activeSize)
+  );
+
+  const selectedModels = MODEL_ORDER.filter(model =>
+    ctx.models.includes(model) &&
+    rowsAtN.some(r => r.Model === model)
+  );
+
+  // Global denominator:
+  // TabPFN-derived tuning budget at this sample size.
+  // Prefer the TabPFN row. If TabPFN is filtered out, use the field available
+  // inside any selected row, because TabPFN_Budget_Used_Mean is stored per row.
+  const tabpfnRow = rowsAtN.find(r => r.Model === "TabPFN");
+
+  const globalBudget =
+    safeNumber(tabpfnRow?.TabPFN_Budget_Used_Mean) ??
+    safeNumber(tabpfnRow?.Actual_Total_Runtime_Mean) ??
+    safeNumber(tabpfnRow?.Budgeted_Total_Runtime_Mean) ??
+    safeNumber(rowsAtN[0]?.TabPFN_Budget_Used_Mean);
+
+  if (!Number.isFinite(globalBudget) || globalBudget <= 0) {
+    Plotly.react(elId, [], LAYOUT_BASE, PLOT_CONFIG);
+    console.warn("Invalid TabPFN budget denominator for budget-util plot.", {
+      activeSize,
+      globalBudget,
+      rowsAtN
+    });
+    return;
+  }
+
+  const plotRows = selectedModels.map(model => {
+    const row = rowsAtN.find(r => r.Model === model);
+
+    const budgetedTotal = safeNumber(row?.Budgeted_Total_Runtime_Mean);
+    const tuningRaw = safeNumber(row?.Optuna_Tuning_Time_Capped_Mean);
+    const finalRaw = safeNumber(row?.Final_Fit_Predict_Time_Mean);
+
+    let tuningSec = 0;
+    let finalSec = 0;
+    let totalSec = 0;
+
+    if (model === "TabPFN") {
+      // TabPFN is the reference budget.
+      // It has no Optuna tuning loop, so display it as the 100% baseline.
+      tuningSec = 0;
+      finalSec = globalBudget;
+      totalSec = globalBudget;
+    } else {
+      tuningSec = tuningRaw ?? 0;
+
+      if (finalRaw != null) {
+        finalSec = finalRaw;
+      } else if (budgetedTotal != null) {
+        finalSec = Math.max(budgetedTotal - tuningSec, 0);
+      } else {
+        finalSec = 0;
+      }
+
+      totalSec = budgetedTotal ?? (tuningSec + finalSec);
+    }
+
+    const tuningPct = (tuningSec / globalBudget) * 100;
+    const finalPct = (finalSec / globalBudget) * 100;
+    const totalPct = (totalSec / globalBudget) * 100;
+
     return {
-      x: rows.map(r => r.Sample_Size),
-      y: rows.map(r => ((r.Actual_Total_Runtime_Mean / r.Budgeted_Total_Runtime_Mean) * 100)),
-      mode: 'lines+markers', type: 'scatter', name: m,
-      line: { color: ctx.modelColors[m], width: 2 },
-      marker: { color: ctx.modelColors[m], size: 7, line: { color: '#fff', width: 1 } },
-      hovertemplate: `<b>${m}</b><br>N = %{x}<br>Budget used: %{y:.1f}%<extra></extra>`
+      Model: model,
+      Sample_Size: activeSize,
+      TabPFN_Budget_Runtime: globalBudget,
+      Optuna_Tuning_Time_Capped_Mean: tuningSec,
+      Final_Fit_Predict_Time_Mean: finalSec,
+      Budgeted_Total_Runtime_Mean: totalSec,
+      Tuning_Share_pct: tuningPct,
+      Final_Share_pct: finalPct,
+      Total_Share_pct: totalPct
     };
   });
-  traces.push({
-    x: [1000, 141425], y: [100, 100], mode: 'lines', type: 'scatter', name: 'On budget',
-    line: { color: '#7a8294', width: 1, dash: 'dash' },
-    hoverinfo: 'skip', showlegend: false
-  });
-  Plotly.react(elId, traces, {
+
+  const xModels = plotRows.map(r => r.Model);
+  const tuningY = plotRows.map(r => r.Tuning_Share_pct);
+  const finalY = plotRows.map(r => r.Final_Share_pct);
+  const totalY = plotRows.map(r => r.Total_Share_pct);
+
+  const tuningTrace = {
+    x: xModels,
+    y: tuningY,
+    type: "bar",
+    name: "Capped Optuna tuning",
+
+    marker: {
+      color: xModels.map(m => ctx.modelColors[m]),
+      line: {
+        color: "#ffffff",
+        width: 0.8
+      }
+    },
+
+    customdata: plotRows.map(r => [
+      r.Sample_Size,
+      r.Optuna_Tuning_Time_Capped_Mean,
+      r.Final_Fit_Predict_Time_Mean,
+      r.Budgeted_Total_Runtime_Mean,
+      r.TabPFN_Budget_Runtime,
+      r.Total_Share_pct
+    ]),
+
+    hovertemplate:
+      `<b>%{x}</b><br>` +
+      `N = %{customdata[0]:,}<br>` +
+      `Component: capped Optuna tuning<br>` +
+      `Tuning time = %{customdata[1]:.3f}s<br>` +
+      `TabPFN budget = %{customdata[4]:.3f}s<br>` +
+      `Tuning share = %{y:.1f}%<br>` +
+      `Total runtime share = %{customdata[5]:.1f}%` +
+      `<extra></extra>`
+  };
+
+  const finalTrace = {
+    x: xModels,
+    y: finalY,
+    type: "bar",
+    name: "Final fit/predict",
+
+    marker: {
+      color: xModels.map(m => rgbaFromHex(ctx.modelColors[m], 0.38)),
+      line: {
+        color: "#ffffff",
+        width: 0.8
+      }
+    },
+
+    customdata: plotRows.map(r => [
+      r.Sample_Size,
+      r.Optuna_Tuning_Time_Capped_Mean,
+      r.Final_Fit_Predict_Time_Mean,
+      r.Budgeted_Total_Runtime_Mean,
+      r.TabPFN_Budget_Runtime,
+      r.Total_Share_pct
+    ]),
+
+    hovertemplate:
+      `<b>%{x}</b><br>` +
+      `N = %{customdata[0]:,}<br>` +
+      `Component: final fit/predict<br>` +
+      `Final fit/predict time = %{customdata[2]:.3f}s<br>` +
+      `TabPFN budget = %{customdata[4]:.3f}s<br>` +
+      `Final share = %{y:.1f}%<br>` +
+      `Total runtime share = %{customdata[5]:.1f}%` +
+      `<extra></extra>`
+  };
+
+  const totalLabelTrace = {
+    x: xModels,
+    y: totalY,
+    type: "scatter",
+    mode: "text",
+    text: totalY.map(v => `${v.toFixed(0)}%`),
+    textposition: "top center",
+
+    textfont: {
+      family: "JetBrains Mono, monospace",
+      size: 10,
+      color: "#515b6e"
+    },
+
+    hoverinfo: "skip",
+    showlegend: false
+  };
+
+  const referenceLine = {
+    x: xModels,
+    y: xModels.map(() => 100),
+    type: "scatter",
+    mode: "lines",
+    name: "100% TabPFN tuning budget",
+
+    line: {
+      color: "#1a2030",
+      width: 1.4,
+      dash: "dash"
+    },
+
+    hovertemplate:
+      `100% = TabPFN-derived tuning budget<extra></extra>`
+  };
+
+  const maxY = Math.max(120, ...totalY.map(v => v * 1.12));
+
+  Plotly.react(elId, [tuningTrace, finalTrace, totalLabelTrace, referenceLine], {
     ...LAYOUT_BASE,
+
+    barmode: "stack",
+    bargap: 0.34,
+
     showlegend: true,
-    legend: { font: FONT_MONO, orientation: 'h', y: -0.22, x: 0.5, xanchor: 'center' },
-    margin: { ...LAYOUT_BASE.margin, b: 80 },
-    xaxis: { ...LAYOUT_BASE.xaxis, type: 'log', title: { text: 'Sample size (log)', font: FONT_AXIS_TITLE } },
-    yaxis: { ...LAYOUT_BASE.yaxis, title: { text: 'Budget utilization (%)', font: FONT_AXIS_TITLE } }
+
+    legend: {
+      font: FONT_MONO,
+      orientation: "h",
+      y: -0.30,
+      x: 0.5,
+      xanchor: "center"
+    },
+
+    margin: {
+      ...LAYOUT_BASE.margin,
+      b: 95
+    },
+
+    xaxis: {
+      ...LAYOUT_BASE.xaxis,
+      title: {
+        text: `Models at N = ${formatN(activeSize)}`,
+        font: FONT_AXIS_TITLE
+      },
+      tickangle: -18
+    },
+
+    yaxis: {
+      ...LAYOUT_BASE.yaxis,
+      title: {
+        text: "Runtime share of TabPFN tuning budget (%)",
+        font: FONT_AXIS_TITLE
+      },
+      range: [0, maxY]
+    }
+
   }, PLOT_CONFIG);
 }});
 
@@ -8993,17 +9325,177 @@ charts.register('tradeoff', { render(elId, summary, ctx) {
 }});
 
 charts.register('energy', { render(elId, summary, ctx) {
-  const totals = ctx.models.map(m => stat.sum(summary.filter(r => r.Model === m).map(r => r.Energy_Mean)));
-  Plotly.react(elId, [{
-    x: ctx.models, y: totals, type: 'bar',
-    marker: { color: ctx.models.map(m => ctx.modelColors[m]) },
-    text: totals.map(v => v < 0.001 ? v.toExponential(2) : v.toFixed(5)),
-    textposition: 'outside', textfont: FONT_MONO,
-    hovertemplate: `<b>%{x}</b><br>Total: %{y:.6f} kWh<extra></extra>`
-  }], {
+
+  function sampleLabel(n) {
+    const v = Number(n);
+    if (!Number.isFinite(v)) return String(n);
+    if (v >= 1000) {
+      const k = v / 1000;
+      return Number.isInteger(k) ? `${k}k` : `${k.toFixed(1)}k`;
+    }
+    return String(v);
+  }
+
+  const selectedSizes = [...new Set(
+    summary
+      .map(r => Number(r.Sample_Size))
+      .filter(v => Number.isFinite(v))
+  )].sort((a, b) => a - b);
+
+  const xLabels = selectedSizes.map(sampleLabel);
+
+  const totalEnergyBySize = new Map();
+
+  selectedSizes.forEach(size => {
+    const total = summary
+      .filter(r => Number(r.Sample_Size) === size && ctx.models.includes(r.Model))
+      .reduce((acc, r) => {
+        const e = Number(r.Energy_Mean);
+        return acc + (Number.isFinite(e) ? e : 0);
+      }, 0);
+
+    totalEnergyBySize.set(size, total);
+  });
+
+  const traces = ctx.models.map(model => {
+    const rowsBySize = new Map(
+      summary
+        .filter(r => r.Model === model)
+        .map(r => [Number(r.Sample_Size), r])
+    );
+
+    const yValues = [];
+    const textValues = [];
+    const customdata = [];
+
+    selectedSizes.forEach(size => {
+      const row = rowsBySize.get(size);
+      const energy = row ? Number(row.Energy_Mean) : 0;
+      const ci = row ? Number(row.Energy_CI95_pm) : null;
+      const total = totalEnergyBySize.get(size) || 0;
+
+      const share = total > 0 && Number.isFinite(energy)
+        ? (energy / total) * 100
+        : 0;
+
+      const cleanEnergy = Number.isFinite(energy) ? energy : 0;
+
+      yValues.push(cleanEnergy);
+
+      // Value shown inside each stacked segment
+      textValues.push(cleanEnergy > 0 ? cleanEnergy.toFixed(5) : "");
+
+      customdata.push([
+        size,
+        Number.isFinite(ci) ? ci : null,
+        total,
+        share
+      ]);
+    });
+
+    return {
+      x: xLabels,
+      y: yValues,
+      type: 'bar',
+      name: model,
+
+      marker: {
+        color: ctx.modelColors[model],
+        line: {
+          color: '#ffffff',
+          width: 0.7
+        }
+      },
+
+      text: textValues,
+      textposition: 'inside',
+      insidetextanchor: 'middle',
+      textfont: {
+        family: 'JetBrains Mono, monospace',
+        size: 9,
+        color: '#ffffff'
+      },
+
+      customdata: customdata,
+
+      hovertemplate:
+        `<b>${model}</b><br>` +
+        `N = %{customdata[0]:,}<br>` +
+        `Energy mean = %{y:.6f} kWh<br>` +
+        `95% CI = ±%{customdata[1]:.6f} kWh<br>` +
+        `Share of stack = %{customdata[3]:.1f}%<br>` +
+        `Total energy at this N = %{customdata[2]:.6f} kWh` +
+        `<extra></extra>`
+    };
+  });
+
+  // Add total energy labels on top of each stacked bar
+  const totalTrace = {
+    x: xLabels,
+    y: selectedSizes.map(size => totalEnergyBySize.get(size) || 0),
+    type: 'scatter',
+    mode: 'text',
+    name: 'Total energy',
+    showlegend: false,
+    text: selectedSizes.map(size => {
+      const total = totalEnergyBySize.get(size) || 0;
+      return total > 0 ? total.toFixed(5) : "";
+    }),
+    textposition: 'top center',
+    textfont: {
+      family: 'JetBrains Mono, monospace',
+      size: 10,
+      color: '#515b6e'
+    },
+    hoverinfo: 'skip'
+  };
+
+  const allTraces = [...traces, totalTrace];
+
+  Plotly.react(elId, allTraces, {
     ...LAYOUT_BASE,
-    xaxis: { ...LAYOUT_BASE.xaxis, tickangle: -20 },
-    yaxis: { ...LAYOUT_BASE.yaxis, type: 'log', title: { text: 'Total Energy (kWh, log)', font: FONT_AXIS_TITLE } }
+
+    barmode: 'stack',
+    bargap: 0.22,
+
+    showlegend: true,
+
+    legend: {
+      font: FONT_MONO,
+      orientation: 'h',
+      y: -0.24,
+      x: 0.5,
+      xanchor: 'center'
+    },
+
+    margin: {
+      ...LAYOUT_BASE.margin,
+      b: 85
+    },
+
+    xaxis: {
+      ...LAYOUT_BASE.xaxis,
+      title: {
+        text: 'Sample size',
+        font: FONT_AXIS_TITLE
+      },
+      type: 'category'
+    },
+
+    yaxis: {
+      ...LAYOUT_BASE.yaxis,
+      title: {
+        text: 'Energy consumption (kWh)',
+        font: FONT_AXIS_TITLE
+      },
+      rangemode: 'tozero'
+    },
+
+    uniformtext: {
+      mode: 'hide',
+      minsize: 8
+    }
+
   }, PLOT_CONFIG);
 }});
 
@@ -9039,7 +9531,7 @@ class Dashboard {
     const cols = [
       { k: 'Model', label: 'Model' },
       { k: 'Sample_Size', label: 'N' },
-      { k: 'BalancedAccuracy_Mean', label: 'Bal.Acc', fmt: (v, r) => `${v.toFixed(4)} ± ${r.BalancedAccuracy_SD.toFixed(4)}` },
+      { k: 'BalancedAccuracy_Mean', label: 'Balanced Accuracy', fmt: (v, r) => `${v.toFixed(4)} ± ${r.BalancedAccuracy_SD.toFixed(4)}` },
       { k: 'AUC_Mean', label: 'AUC', fmt: (v, r) => `${v.toFixed(4)} ± ${r.AUC_SD.toFixed(4)}` },
       { k: 'Brier_Mean', label: 'Brier', fmt: (v, r) => `${v.toFixed(4)} ± ${r.Brier_SD.toFixed(4)}` },
       { k: 'Sensitivity_Mean', label: 'Sensitivity', fmt: (v) => v.toFixed(4) },
@@ -9070,17 +9562,24 @@ class Dashboard {
     const allModels = ['TabPFN', 'L-SLR', 'Augmented_SLR', 'RandomForest', 'XGBoost', 'CatBoost'];
     const agg = {};
 
-    // 1. First, find TabPFN's runtime to use as the absolute baseline budget
-    const tabPfnRow = summary.find(r => r.Model === 'TabPFN');
-    const globalBaselineBudget = tabPfnRow ? tabPfnRow.Actual_Total_Runtime_Mean : 1.0;
-
+    // Budget-used ratio must be calculated from budgeted runtime,
+    // not actual total runtime.
+    // Correct formula:
+    // Budget used (%) = Budgeted_Total_Runtime_Mean / TabPFN_Budget_Used_Mean × 100
     const validModels = [];
     allModels.forEach(m => {
       const rows = summary.filter(r => r.Model === m);
       if (!rows.length) { agg[m] = null; return; }
-      
-      // Calculate budget percentage relative to the Global TabPFN baseline
-      const exactBudgetUsedPct = (rows[0].Actual_Total_Runtime_Mean / globalBaselineBudget) * 100;
+
+      const budgetRuntime = Number(rows[0].Budgeted_Total_Runtime_Mean);
+      const tabpfnBudget = Number(rows[0].TabPFN_Budget_Used_Mean);
+
+      const exactBudgetUsedPct =
+        Number.isFinite(budgetRuntime) &&
+        Number.isFinite(tabpfnBudget) &&
+        tabpfnBudget > 0
+          ? (budgetRuntime / tabpfnBudget) * 100
+          : null;
 
       agg[m] = {
         auc: rows[0].AUC_Mean,
@@ -9132,7 +9631,7 @@ class Dashboard {
             <div class="kpi-subrow"><span>Bal. Acc</span><strong>${a.bal.toFixed(4)}</strong></div>
             <div class="kpi-subrow"><span>Brier</span><strong>${a.brier.toFixed(4)}</strong></div>
             <div class="kpi-subrow"><span>Budgeted Runtime</span><strong>${fmtT(a.runtime)}</strong></div>
-            <div class="kpi-subrow"><span>Budget used</span><strong>${a.budgetUsedPct.toFixed(0)}%</strong></div>
+            <div class="kpi-subrow"><span>Budget used</span><strong>${a.budgetUsedPct != null && isFinite(a.budgetUsedPct) ? a.budgetUsedPct.toFixed(0) + '%' : '—'}</strong></div>
             <div class="kpi-subrow"><span>Trials</span><strong>${fmtTrials(a.trials)}</strong></div>
             <div class="kpi-subrow"><span>Energy</span><strong>${fmtE(a.energy)} kWh</strong></div>
           </div>
