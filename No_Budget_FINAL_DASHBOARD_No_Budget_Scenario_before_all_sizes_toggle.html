@@ -194,6 +194,9 @@ tr:hover td { background: var(--bg-tint); color: var(--text-primary); }
       </div>
       <div class="sidebar-section">
         <button class="btn-reset" id="btn-reset">↺ Reset filters</button>
+        <button class="btn-reset" id="btn-toggle-all-sizes" style="margin-top: 8px; background: var(--bg-tint);">
+          All Sizes
+        </button>
       </div>
     </aside>
 
@@ -269,29 +272,8 @@ tr:hover td { background: var(--bg-tint); color: var(--text-primary); }
       </div>
 
       <div class="section-header" style="margin-top: 6px;">
-        <h2 class="section-title">Kneedle selection</h2>
-        <span class="section-subtitle">tuning-curve knee-point analysis · replaces the budget section</span>
-      </div>
-      <div class="grid-2">
-        <div class="panel">
-          <div class="panel-header">
-            <span class="panel-title">Selected trial number vs N</span>
-            <span class="panel-note">where the knee was found</span>
-          </div>
-          <div id="chart-selected-trial" class="chart"></div>
-        </div>
-        <div class="panel">
-          <div class="panel-header">
-            <span class="panel-title">Selection method per model</span>
-            <span class="panel-note">Kneedle vs Best-AUC fallback</span>
-          </div>
-          <div id="chart-selection-method" class="chart"></div>
-        </div>
-      </div>
-
-      <div class="section-header" style="margin-top: 6px;">
         <h2 class="section-title">Trade-offs</h2>
-        <span class="section-subtitle">accuracy × cost × stability</span>
+        <span class="section-subtitle">accuracy × runtime × energy</span>
       </div>
       <div class="grid-2">
         <div class="panel">
@@ -413,14 +395,100 @@ class FilterBuilder {
     });
   }
   bindReset(defaults) {
-    document.getElementById('btn-reset').addEventListener('click', () => {
-      document.querySelectorAll('.sidebar input[type="checkbox"]').forEach(i => i.checked = true);
-      document.getElementById('count-model').textContent = '6/6';
-      document.getElementById('count-size').textContent = '12/12';
-      document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
-      document.querySelector(`.chip[data-metric="${defaults.metric}"]`).classList.add('active');
-      this.store.set(defaults);
-    });
+    const updateSizeCount = () => {
+      const sizeInputs = [...document.querySelectorAll('#filter-size input[type="checkbox"]')];
+      const checkedInputs = sizeInputs.filter(i => i.checked);
+      const countEl = document.getElementById('count-size');
+
+      if (countEl) {
+        countEl.textContent = `${checkedInputs.length}/${sizeInputs.length}`;
+      }
+    };
+
+    const updateModelCount = () => {
+      const modelInputs = [...document.querySelectorAll('#filter-model input[type="checkbox"]')];
+      const checkedInputs = modelInputs.filter(i => i.checked);
+      const countEl = document.getElementById('count-model');
+
+      if (countEl) {
+        countEl.textContent = `${checkedInputs.length}/${modelInputs.length}`;
+      }
+    };
+
+    const getAllSizes = () => {
+      return this.adapter
+        .uniqueValues('Sample_Size')
+        .map(Number)
+        .sort((a, b) => a - b);
+    };
+
+    const getCheckedSizesFromDOM = () => {
+      return [...document.querySelectorAll('#filter-size input[type="checkbox"]:checked')]
+        .map(i => Number(i.dataset.size))
+        .filter(Number.isFinite)
+        .sort((a, b) => a - b);
+    };
+
+    const resetBtn = document.getElementById('btn-reset');
+
+    if (resetBtn) {
+      resetBtn.addEventListener('click', () => {
+        // Select all model and sample-size checkboxes
+        document
+          .querySelectorAll('.sidebar input[type="checkbox"]')
+          .forEach(i => i.checked = true);
+
+        updateModelCount();
+        updateSizeCount();
+
+        // Reset metric chips
+        document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+
+        const defaultMetricChip = document.querySelector(`.chip[data-metric="${defaults.metric}"]`);
+        if (defaultMetricChip) {
+          defaultMetricChip.classList.add('active');
+        }
+
+        // Push full default state to the dashboard
+        this.store.set({
+          ...defaults,
+          sizes: getAllSizes()
+        });
+      });
+    }
+
+    // Master select/de-select all sample sizes
+    const toggleBtn =
+      document.getElementById('btn-toggle-all-sizes') ||
+      document.getElementById('btn-toggle-all');
+
+    if (toggleBtn) {
+      toggleBtn.addEventListener('click', () => {
+        const sizeInputs = [...document.querySelectorAll('#filter-size input[type="checkbox"]')];
+
+        if (!sizeInputs.length) {
+          return;
+        }
+
+        const allCurrentlyChecked = sizeInputs.every(i => i.checked);
+
+        // If all sizes are already selected, clear them.
+        // Otherwise, select all sizes.
+        const nextCheckedState = !allCurrentlyChecked;
+
+        sizeInputs.forEach(i => {
+          i.checked = nextCheckedState;
+        });
+
+        const nextSizes = nextCheckedState ? getAllSizes() : [];
+
+        updateSizeCount();
+
+        this.store.set({
+          sizes: nextSizes
+        });
+      });
+    }
   }
 }
 
@@ -856,25 +924,96 @@ charts.register('calibration', {
 
 
 charts.register('scaling', { render(elId, summary, ctx) {
-  const traces = ctx.models.map(m => {
-    const rows = summary.filter(r => r.Model === m).sort((a, b) => a.Sample_Size - b.Sample_Size);
+  const meanKey = `${ctx.metric}_Mean`;
+  const ciKey = `${ctx.metric}_CI95_pm`;
+
+  const traces = ctx.models.map(model => {
+    const rows = summary
+      .filter(r => r.Model === model)
+      .sort((a, b) => a.Sample_Size - b.Sample_Size);
+
     return {
       x: rows.map(r => r.Sample_Size),
-      y: rows.map(r => r[`${ctx.metric}_Mean`]),
-      error_y: { type: 'data', array: rows.map(r => r[`${ctx.metric}_CI95_pm`]), color: ctx.modelColors[m], thickness: 1, width: 4 },
-      mode: 'lines+markers', type: 'scatter', name: m,
-      line: { color: ctx.modelColors[m], width: 2 },
-      marker: { color: ctx.modelColors[m], size: 7, line: { color: '#fff', width: 1 } },
-      hovertemplate: `<b>${m}</b><br>N = %{x}<br>${ctx.metric} = %{y:.4f}<extra></extra>`
+      y: rows.map(r => r[meanKey]),
+
+      // CI is not drawn physically anymore.
+      // It is stored only for hover display.
+      customdata: rows.map(r => {
+        const mean = Number(r[meanKey]);
+        const ci = Number(r[ciKey]);
+
+        const lower = Number.isFinite(mean) && Number.isFinite(ci)
+          ? mean - ci
+          : null;
+
+        const upper = Number.isFinite(mean) && Number.isFinite(ci)
+          ? mean + ci
+          : null;
+
+        return [ci, lower, upper];
+      }),
+
+      mode: 'lines+markers',
+      type: 'scatter',
+      name: model,
+
+      line: {
+        color: ctx.modelColors[model],
+        width: 2
+      },
+
+      marker: {
+        color: ctx.modelColors[model],
+        size: 7,
+        line: {
+          color: '#ffffff',
+          width: 1
+        }
+      },
+
+      hovertemplate:
+        `<b>${model}</b><br>` +
+        `N = %{x:,}<br>` +
+        `${ctx.metric} mean = %{y:.4f}<br>` +
+        `95% CI = ±%{customdata[0]:.4f}<br>` +
+        `CI range = [%{customdata[1]:.4f}, %{customdata[2]:.4f}]` +
+        `<extra></extra>`
     };
   });
+
   Plotly.react(elId, traces, {
     ...LAYOUT_BASE,
     showlegend: true,
-    legend: { font: FONT_MONO, orientation: 'h', y: -0.22, x: 0.5, xanchor: 'center' },
-    margin: { ...LAYOUT_BASE.margin, b: 80 },
-    xaxis: { ...LAYOUT_BASE.xaxis, type: 'log', title: { text: 'Sample size (log)', font: FONT_AXIS_TITLE } },
-    yaxis: { ...LAYOUT_BASE.yaxis, title: { text: `${ctx.metric} (mean ± 95% CI)`, font: FONT_AXIS_TITLE } }
+
+    legend: {
+      font: FONT_MONO,
+      orientation: 'h',
+      y: -0.24,
+      x: 0.5,
+      xanchor: 'center'
+    },
+
+    margin: {
+      ...LAYOUT_BASE.margin,
+      b: 85
+    },
+
+    xaxis: {
+      ...LAYOUT_BASE.xaxis,
+      type: 'log',
+      title: {
+        text: 'Sample size (log)',
+        font: FONT_AXIS_TITLE
+      }
+    },
+
+    yaxis: {
+      ...LAYOUT_BASE.yaxis,
+      title: {
+        text: `${ctx.metric} mean`,
+        font: FONT_AXIS_TITLE
+      }
+    }
   }, PLOT_CONFIG);
 }});
 
@@ -897,54 +1036,6 @@ charts.register('runtime-scaling', { render(elId, summary, ctx) {
     margin: { ...LAYOUT_BASE.margin, b: 80 },
     xaxis: { ...LAYOUT_BASE.xaxis, type: 'log', title: { text: 'Sample size (log)', font: FONT_AXIS_TITLE } },
     yaxis: { ...LAYOUT_BASE.yaxis, type: 'log', title: { text: 'Time (s, log)', font: FONT_AXIS_TITLE } }
-  }, PLOT_CONFIG);
-}});
-
-charts.register('selected-trial', { render(elId, summary, ctx) {
-  const traces = ctx.models.map(m => {
-    const rows = summary.filter(r => r.Model === m && r.Kneedle_Selected_Trial_Number_Mean != null)
-                        .sort((a, b) => a.Sample_Size - b.Sample_Size);
-    if (!rows.length) return null;
-    return {
-      x: rows.map(r => r.Sample_Size),
-      y: rows.map(r => r.Kneedle_Selected_Trial_Number_Mean),
-      mode: 'lines+markers', type: 'scatter', name: m,
-      line: { color: ctx.modelColors[m], width: 2 },
-      marker: { color: ctx.modelColors[m], size: 7, line: { color: '#fff', width: 1 } },
-      hovertemplate: `<b>${m}</b><br>N = %{x}<br>Knee at trial: %{y:.1f}<extra></extra>`
-    };
-  }).filter(Boolean);
-  Plotly.react(elId, traces, {
-    ...LAYOUT_BASE,
-    showlegend: true,
-    legend: { font: FONT_MONO, orientation: 'h', y: -0.22, x: 0.5, xanchor: 'center' },
-    margin: { ...LAYOUT_BASE.margin, b: 80 },
-    xaxis: { ...LAYOUT_BASE.xaxis, type: 'log', title: { text: 'Sample size (log)', font: FONT_AXIS_TITLE } },
-    yaxis: { ...LAYOUT_BASE.yaxis, title: { text: 'Selected trial number', font: FONT_AXIS_TITLE } }
-  }, PLOT_CONFIG);
-}});
-
-charts.register('selection-method', { render(elId, iters, ctx) {
-  const models = ctx.models;
-  const kneedle = models.map(m => iters.filter(r => r.Model === m && r.Kneedle_Selection_Method === 'Kneedle').length);
-  const fallback = models.map(m => iters.filter(r => r.Model === m && r.Kneedle_Selection_Method === 'Best_AUC_fallback').length);
-  const totals = models.map((_, i) => kneedle[i] + fallback[i]);
-  const kneedlePct = kneedle.map((v, i) => totals[i] > 0 ? (v / totals[i]) * 100 : 0);
-  const fallbackPct = fallback.map((v, i) => totals[i] > 0 ? (v / totals[i]) * 100 : 0);
-  Plotly.react(elId, [
-    { x: models, y: kneedlePct, type: 'bar', name: 'Kneedle', marker: { color: '#4a8c52' },
-      text: kneedle.map(v => v.toString()), textposition: 'inside', textfont: { ...FONT_MONO, color: '#fff' },
-      hovertemplate: '<b>%{x}</b><br>Kneedle: %{y:.1f}%<br>n = %{text}<extra></extra>' },
-    { x: models, y: fallbackPct, type: 'bar', name: 'Best-AUC fallback', marker: { color: '#c08f3e' },
-      text: fallback.map(v => v.toString()), textposition: 'inside', textfont: { ...FONT_MONO, color: '#fff' },
-      hovertemplate: '<b>%{x}</b><br>Fallback: %{y:.1f}%<br>n = %{text}<extra></extra>' }
-  ], {
-    ...LAYOUT_BASE, barmode: 'stack',
-    showlegend: true,
-    legend: { font: FONT_MONO, orientation: 'h', y: -0.22, x: 0.5, xanchor: 'center' },
-    margin: { ...LAYOUT_BASE.margin, b: 80 },
-    xaxis: { ...LAYOUT_BASE.xaxis, tickangle: -20 },
-    yaxis: { ...LAYOUT_BASE.yaxis, title: { text: '% of iterations', font: FONT_AXIS_TITLE }, range: [0, 100] }
   }, PLOT_CONFIG);
 }});
 
@@ -1011,7 +1102,19 @@ class Dashboard {
     document.getElementById('iter-count').textContent = iters.length;
     document.getElementById('scaling-metric').textContent = state.metric;
 
-    this.renderKPIs(summary, iters = []) {
+    this.renderKPIs(summary);
+    charts.get('allmetrics-box').render('chart-allmetrics-box', iters, ctx);
+    charts.get('roc').render('chart-roc', summary, ctx);
+    charts.get('calibration').render('chart-calibration', summary, ctx);
+    charts.get('scaling').render('chart-scaling', summary, ctx);
+    charts.get('runtime-scaling').render('chart-runtime-scaling', summary, ctx);
+    charts.get('tradeoff').render('chart-tradeoff', iters, ctx);
+    charts.get('energy').render('chart-energy', summary, ctx);
+    this.renderTable(summary);
+    this.renderRanking(summary);
+  }
+
+  renderKPIs(summary, iters = []) {
     const allModels = ['TabPFN', 'L-SLR', 'Augmented_SLR', 'RandomForest', 'XGBoost', 'CatBoost'];
 
     const finite = (v) => Number.isFinite(Number(v));
