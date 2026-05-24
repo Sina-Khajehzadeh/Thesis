@@ -224,147 +224,6 @@ tr:hover td { background: var(--bg-tint); color: var(--text-primary); }
 
 /* === TABLE ALIGNMENT FIX END === */
 
-
-/* === SAMPLE SIZE TOP-3 RANKING PATCH START === */
-
-.ranking-explain {
-  font-family: var(--font-ui);
-  font-size: 11px;
-  color: var(--text-tertiary);
-  font-style: italic;
-  margin: 0 0 8px;
-  padding: 8px 12px;
-  background: var(--bg-tint);
-  border-left: 2px solid var(--warning);
-  border-radius: var(--radius-sm);
-}
-
-.ranking-card-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(280px, 1fr));
-  gap: 16px;
-}
-
-.ranking-card {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius);
-  overflow: hidden;
-  box-shadow: var(--shadow-card);
-}
-
-.ranking-card-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 12px 14px;
-  background: var(--bg-tint);
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.ranking-card-title {
-  font-family: var(--font-display);
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.ranking-card-note {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  color: var(--text-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.13em;
-}
-
-.ranking-mini-table {
-  width: 100%;
-  border-collapse: collapse;
-  table-layout: fixed;
-  font-family: var(--font-mono);
-  font-size: 10px;
-}
-
-.ranking-mini-table th {
-  position: static;
-  background: var(--bg-surface);
-  padding: 8px 6px;
-  border-bottom: 1px solid var(--border-subtle);
-  color: var(--text-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-size: 8.5px;
-  text-align: center;
-}
-
-.ranking-mini-table td {
-  padding: 7px 6px;
-  border-bottom: 1px solid var(--border-subtle);
-  color: var(--text-secondary);
-  text-align: center;
-  white-space: nowrap;
-}
-
-.ranking-mini-table tr:last-child td {
-  border-bottom: none;
-}
-
-.ranking-mini-table .rank-model {
-  text-align: left;
-  font-weight: 600;
-  color: var(--text-primary);
-  width: 140px;
-}
-
-.ranking-mini-table th.rank-model {
-  text-align: left;
-}
-
-.ranking-mini-table .rank-overall {
-  font-weight: 700;
-  color: var(--accent);
-}
-
-.rank-dot-model {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  margin-right: 7px;
-  vertical-align: middle;
-}
-
-.rank-point {
-  display: inline-block;
-  width: 11px;
-  height: 11px;
-  border-radius: 999px;
-  border: 1px solid var(--border-strong);
-  background: var(--bg-surface);
-  vertical-align: middle;
-}
-
-.rank-point.on {
-  background: var(--accent);
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(37, 99, 179, 0.10);
-}
-
-@media (max-width: 1400px) {
-  .ranking-card-grid {
-    grid-template-columns: repeat(2, minmax(280px, 1fr));
-  }
-}
-
-@media (max-width: 900px) {
-  .ranking-card-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* === SAMPLE SIZE TOP-3 RANKING PATCH END === */
-
 </style>
 </head>
 <body>
@@ -514,7 +373,7 @@ tr:hover td { background: var(--bg-tint); color: var(--text-primary); }
 
       <div class="section-header" style="margin-top: 6px;">
         <h2 class="section-title">Overall top-3 ranking</h2>
-        <span class="section-subtitle">summarized separately for each selected sample size</span>
+        <span class="section-subtitle">aggregated across all sample sizes</span>
       </div>
       <div class="panel">
         <div id="ranking-host"></div>
@@ -1448,194 +1307,44 @@ class Dashboard {
   }
 
   renderRanking(summary) {
-    const container =
-      document.getElementById('ranking-table') ||
-      document.getElementById('ranking-output') ||
-      document.getElementById('ranking-cards');
-
-    if (!container) {
-      console.warn('Ranking container not found.');
-      return;
-    }
-
-    const finite = (v) => Number.isFinite(Number(v));
-
-    const fmt = (v, digits = 4) => {
-      const n = Number(v);
-      return Number.isFinite(n) ? n.toFixed(digits) : '—';
-    };
-
-    const sampleLabel = (n) => {
-      const v = Number(n);
-      if (!Number.isFinite(v)) return String(n);
-      if (v >= 1000) {
-        const k = v / 1000;
-        return Number.isInteger(k) ? `${k}k` : `${k.toFixed(1)}k`;
-      }
-      return String(v);
-    };
-
-    const metrics = [
-      {
-        key: 'AUC_Mean',
-        label: 'AUC',
-        short: 'AUC',
-        direction: 'higher',
-        digits: 4
-      },
-      {
-        key: 'Brier_Mean',
-        label: 'Brier',
-        short: 'Brier',
-        direction: 'lower',
-        digits: 4
-      },
-      {
-        key: 'BalancedAccuracy_Mean',
-        label: 'Balanced accuracy',
-        short: 'BalAcc',
-        direction: 'higher',
-        digits: 4
-      },
-      {
-        key: 'Sensitivity_Mean',
-        label: 'Sensitivity',
-        short: 'Sens',
-        direction: 'higher',
-        digits: 4
-      },
-      {
-        key: 'Precision_Mean',
-        label: 'Precision',
-        short: 'Prec',
-        direction: 'higher',
-        digits: 4
-      },
-      {
-        key: 'Time_Seconds_Mean',
-        label: 'Runtime',
-        short: 'Time',
-        direction: 'lower',
-        digits: 2
-      },
-      {
-        key: 'Energy_kWh_Mean',
-        label: 'Energy',
-        short: 'Energy',
-        direction: 'lower',
-        digits: 5
-      }
-    ];
-
-    const sizes = [...new Set(
-      summary
-        .map(r => Number(r.Sample_Size))
-        .filter(Number.isFinite)
-    )].sort((a, b) => a - b);
-
-    const cardsHtml = sizes.map(size => {
-      const rows = summary
-        .filter(r => Number(r.Sample_Size) === size)
-        .map(r => ({ ...r, OverallPoints: 0, Top3Flags: {} }));
-
-      metrics.forEach(metric => {
-        const sorted = [...rows]
-          .filter(r => finite(r[metric.key]))
-          .sort((a, b) => {
-            const av = Number(a[metric.key]);
-            const bv = Number(b[metric.key]);
-            return metric.direction === 'higher'
-              ? bv - av
-              : av - bv;
-          });
-
-        const top3 = new Set(sorted.slice(0, 3).map(r => r.Model));
-
-        rows.forEach(r => {
-          const isTop3 = top3.has(r.Model);
-          r.Top3Flags[metric.short] = isTop3;
-
-          if (isTop3) {
-            r.OverallPoints += 1;
-          }
-        });
-      });
-
-      rows.sort((a, b) => {
-        if (b.OverallPoints !== a.OverallPoints) {
-          return b.OverallPoints - a.OverallPoints;
-        }
-
-        const aucA = Number(a.AUC_Mean);
-        const aucB = Number(b.AUC_Mean);
-
-        if (Number.isFinite(aucA) && Number.isFinite(aucB) && aucB !== aucA) {
-          return aucB - aucA;
-        }
-
-        return String(a.Model).localeCompare(String(b.Model));
-      });
-
-      const bodyRows = rows.map(r => {
-        const metricCells = metrics.map(metric => {
-          const active = r.Top3Flags[metric.short];
-          const value = fmt(r[metric.key], metric.digits);
-          const title = `${metric.label}: ${value}`;
-
-          return `
-            <td title="${title}">
-              <span class="rank-point ${active ? 'on' : ''}"></span>
-            </td>
-          `;
-        }).join('');
-
-        const color = this.modelColors[r.Model] || '#7a8294';
-
-        return `
-          <tr>
-            <td class="rank-model">
-              <span class="rank-dot-model" style="background:${color};"></span>
-              ${r.Model}
-            </td>
-            ${metricCells}
-            <td class="rank-overall">${r.OverallPoints}</td>
-          </tr>
-        `;
-      }).join('');
-
-      return `
-        <div class="ranking-card">
-          <div class="ranking-card-header">
-            <div class="ranking-card-title">N = ${sampleLabel(size)}</div>
-            <div class="ranking-card-note">Top-3 count</div>
-          </div>
-
-          <table class="ranking-mini-table">
-            <thead>
-              <tr>
-                <th class="rank-model">Model</th>
-                ${metrics.map(m => `<th>${m.short}</th>`).join('')}
-                <th>Overall</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${bodyRows}
-            </tbody>
-          </table>
-        </div>
-      `;
-    }).join('');
-
-    container.innerHTML = `
-      <div class="ranking-explain">
-        Blue point = model ranked in the top 3 among all six models for that metric within the same sample size.
-        For Brier, Time, and Energy, lower is better; for AUC, balanced accuracy, sensitivity, and precision, higher is better.
-        Overall = sum of top-3 points across all metrics.
-      </div>
-      <div class="ranking-card-grid">
-        ${cardsHtml}
-      </div>
-    `;
+    const allModels = [...new Set(summary.map(r => r.Model))];
+    const rows = allModels.map(m => {
+      const sub = summary.filter(r => r.Model === m);
+      return {
+        Model: m,
+        AUC: stat.mean(sub.map(r => r.AUC_Mean)),
+        BalAcc: stat.mean(sub.map(r => r.BalancedAccuracy_Mean)),
+        Brier: stat.mean(sub.map(r => r.Brier_Mean)),
+        Time: stat.mean(sub.map(r => r.Time_Seconds_Mean)),
+        Energy: stat.sum(sub.map(r => r.Energy_kWh_Mean))
+      };
+    });
+    rows.sort((a, b) => b.AUC - a.AUC);
+    const medals = ['🥇', '🥈', '🥉'];
+    const html = `
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Rank</th><th>Model</th><th>AUC</th><th>Bal. Acc</th>
+              <th>Brier</th><th>Time (s)</th><th>Energy (kWh)</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map((r, i) => `
+              <tr style="${i < 3 ? 'background: rgba(74,140,82,0.04);' : ''}">
+                <td class="num" style="font-size:14px;">${medals[i] || (i + 1)}</td>
+                <td class="model-cell"><span class="model-dot" style="background:${this.modelColors[r.Model]}"></span>${r.Model}</td>
+                <td class="num">${r.AUC.toFixed(4)}</td>
+                <td class="num">${r.BalAcc.toFixed(4)}</td>
+                <td class="num">${r.Brier.toFixed(4)}</td>
+                <td class="num">${r.Time.toFixed(2)}</td>
+                <td class="num">${r.Energy < 0.001 ? r.Energy.toExponential(2) : r.Energy.toFixed(5)}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
+    document.getElementById('ranking-host').innerHTML = html;
   }
 }
 
