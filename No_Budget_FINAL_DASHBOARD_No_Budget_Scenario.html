@@ -225,7 +225,12 @@ tr:hover td { background: var(--bg-tint); color: var(--text-primary); }
 /* === TABLE ALIGNMENT FIX END === */
 
 
+
 /* === SAMPLE SIZE TOP-3 RANKING PATCH START === */
+
+#ranking-cards {
+  width: 100%;
+}
 
 .ranking-explain {
   font-family: var(--font-ui);
@@ -241,8 +246,8 @@ tr:hover td { background: var(--bg-tint); color: var(--text-primary); }
 
 .ranking-card-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(280px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(4, minmax(260px, 1fr));
+  gap: 14px;
 }
 
 .ranking-card {
@@ -258,7 +263,7 @@ tr:hover td { background: var(--bg-tint); color: var(--text-primary); }
   align-items: baseline;
   justify-content: space-between;
   gap: 10px;
-  padding: 12px 14px;
+  padding: 11px 12px;
   background: var(--bg-tint);
   border-bottom: 1px solid var(--border-subtle);
 }
@@ -272,7 +277,7 @@ tr:hover td { background: var(--bg-tint); color: var(--text-primary); }
 
 .ranking-card-note {
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 8.5px;
   color: var(--text-tertiary);
   text-transform: uppercase;
   letter-spacing: 0.13em;
@@ -283,23 +288,23 @@ tr:hover td { background: var(--bg-tint); color: var(--text-primary); }
   border-collapse: collapse;
   table-layout: fixed;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 9.5px;
 }
 
 .ranking-mini-table th {
   position: static;
   background: var(--bg-surface);
-  padding: 8px 6px;
+  padding: 7px 4px;
   border-bottom: 1px solid var(--border-subtle);
   color: var(--text-tertiary);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-size: 8.5px;
+  letter-spacing: 0.07em;
+  font-size: 7.7px;
   text-align: center;
 }
 
 .ranking-mini-table td {
-  padding: 7px 6px;
+  padding: 7px 4px;
   border-bottom: 1px solid var(--border-subtle);
   color: var(--text-secondary);
   text-align: center;
@@ -314,7 +319,7 @@ tr:hover td { background: var(--bg-tint); color: var(--text-primary); }
   text-align: left;
   font-weight: 600;
   color: var(--text-primary);
-  width: 140px;
+  width: 112px;
 }
 
 .ranking-mini-table th.rank-model {
@@ -328,17 +333,17 @@ tr:hover td { background: var(--bg-tint); color: var(--text-primary); }
 
 .rank-dot-model {
   display: inline-block;
-  width: 8px;
-  height: 8px;
+  width: 7.5px;
+  height: 7.5px;
   border-radius: 999px;
-  margin-right: 7px;
+  margin-right: 6px;
   vertical-align: middle;
 }
 
 .rank-point {
   display: inline-block;
-  width: 11px;
-  height: 11px;
+  width: 10.5px;
+  height: 10.5px;
   border-radius: 999px;
   border: 1px solid var(--border-strong);
   background: var(--bg-surface);
@@ -351,13 +356,26 @@ tr:hover td { background: var(--bg-tint); color: var(--text-primary); }
   box-shadow: 0 0 0 3px rgba(37, 99, 179, 0.10);
 }
 
-@media (max-width: 1400px) {
+.ranking-empty {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-tertiary);
+  padding: 18px;
+}
+
+@media (max-width: 1500px) {
   .ranking-card-grid {
-    grid-template-columns: repeat(2, minmax(280px, 1fr));
+    grid-template-columns: repeat(3, minmax(260px, 1fr));
   }
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1100px) {
+  .ranking-card-grid {
+    grid-template-columns: repeat(2, minmax(260px, 1fr));
+  }
+}
+
+@media (max-width: 800px) {
   .ranking-card-grid {
     grid-template-columns: 1fr;
   }
@@ -517,6 +535,8 @@ tr:hover td { background: var(--bg-tint); color: var(--text-primary); }
         <span class="section-subtitle">summarized separately for each selected sample size</span>
       </div>
       <div class="panel">
+<div id="ranking-cards"></div>
+
         <div id="ranking-host"></div>
       </div>
 
@@ -1448,13 +1468,19 @@ class Dashboard {
   }
 
   renderRanking(summary) {
-    const container =
-      document.getElementById('ranking-table') ||
-      document.getElementById('ranking-output') ||
-      document.getElementById('ranking-cards');
+    const container = document.getElementById('ranking-cards');
 
     if (!container) {
-      console.warn('Ranking container not found.');
+      console.warn('Ranking container #ranking-cards not found.');
+      return;
+    }
+
+    if (!summary || !summary.length) {
+      container.innerHTML = `
+        <div class="ranking-empty">
+          No ranking data available for the selected filters.
+        </div>
+      `;
       return;
     }
 
@@ -1476,55 +1502,13 @@ class Dashboard {
     };
 
     const metrics = [
-      {
-        key: 'AUC_Mean',
-        label: 'AUC',
-        short: 'AUC',
-        direction: 'higher',
-        digits: 4
-      },
-      {
-        key: 'Brier_Mean',
-        label: 'Brier',
-        short: 'Brier',
-        direction: 'lower',
-        digits: 4
-      },
-      {
-        key: 'BalancedAccuracy_Mean',
-        label: 'Balanced accuracy',
-        short: 'BalAcc',
-        direction: 'higher',
-        digits: 4
-      },
-      {
-        key: 'Sensitivity_Mean',
-        label: 'Sensitivity',
-        short: 'Sens',
-        direction: 'higher',
-        digits: 4
-      },
-      {
-        key: 'Precision_Mean',
-        label: 'Precision',
-        short: 'Prec',
-        direction: 'higher',
-        digits: 4
-      },
-      {
-        key: 'Time_Seconds_Mean',
-        label: 'Runtime',
-        short: 'Time',
-        direction: 'lower',
-        digits: 2
-      },
-      {
-        key: 'Energy_kWh_Mean',
-        label: 'Energy',
-        short: 'Energy',
-        direction: 'lower',
-        digits: 5
-      }
+      { key: 'AUC_Mean', label: 'AUC', short: 'AUC', direction: 'higher', digits: 4 },
+      { key: 'Brier_Mean', label: 'Brier', short: 'Brier', direction: 'lower', digits: 4 },
+      { key: 'BalancedAccuracy_Mean', label: 'Balanced accuracy', short: 'BalAcc', direction: 'higher', digits: 4 },
+      { key: 'Sensitivity_Mean', label: 'Sensitivity', short: 'Sens', direction: 'higher', digits: 4 },
+      { key: 'Precision_Mean', label: 'Precision', short: 'Prec', direction: 'higher', digits: 4 },
+      { key: 'Time_Seconds_Mean', label: 'Runtime', short: 'Time', direction: 'lower', digits: 2 },
+      { key: 'Energy_kWh_Mean', label: 'Energy', short: 'Energy', direction: 'lower', digits: 5 }
     ];
 
     const sizes = [...new Set(
@@ -1536,7 +1520,11 @@ class Dashboard {
     const cardsHtml = sizes.map(size => {
       const rows = summary
         .filter(r => Number(r.Sample_Size) === size)
-        .map(r => ({ ...r, OverallPoints: 0, Top3Flags: {} }));
+        .map(r => ({
+          ...r,
+          OverallPoints: 0,
+          Top3Flags: {}
+        }));
 
       metrics.forEach(metric => {
         const sorted = [...rows]
@@ -1544,15 +1532,16 @@ class Dashboard {
           .sort((a, b) => {
             const av = Number(a[metric.key]);
             const bv = Number(b[metric.key]);
+
             return metric.direction === 'higher'
               ? bv - av
               : av - bv;
           });
 
-        const top3 = new Set(sorted.slice(0, 3).map(r => r.Model));
+        const top3Models = new Set(sorted.slice(0, 3).map(r => r.Model));
 
         rows.forEach(r => {
-          const isTop3 = top3.has(r.Model);
+          const isTop3 = top3Models.has(r.Model);
           r.Top3Flags[metric.short] = isTop3;
 
           if (isTop3) {
@@ -1632,6 +1621,7 @@ class Dashboard {
         For Brier, Time, and Energy, lower is better; for AUC, balanced accuracy, sensitivity, and precision, higher is better.
         Overall = sum of top-3 points across all metrics.
       </div>
+
       <div class="ranking-card-grid">
         ${cardsHtml}
       </div>
