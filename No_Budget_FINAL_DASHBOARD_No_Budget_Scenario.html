@@ -383,6 +383,60 @@ tr:hover td { background: var(--bg-tint); color: var(--text-primary); }
 
 /* === SAMPLE SIZE TOP-3 RANKING PATCH END === */
 
+
+/* === SIX METRIC BOXPLOT PANELS START === */
+
+#chart-allmetrics-box {
+  height: auto !important;
+  min-height: 0 !important;
+  padding-bottom: 0 !important;
+  margin-bottom: 0 !important;
+}
+
+.metric-boxplot-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(320px, 1fr));
+  gap: 12px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+.metric-boxplot-panel {
+  height: clamp(245px, 27vh, 310px);
+  min-height: 245px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  background: var(--bg-surface);
+  padding: 2px;
+  overflow: hidden;
+}
+
+.metric-boxplot-panel .js-plotly-plot,
+.metric-boxplot-panel .plot-container,
+.metric-boxplot-panel .svg-container {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+@media (max-width: 1350px) {
+  .metric-boxplot-grid {
+    grid-template-columns: repeat(2, minmax(340px, 1fr));
+  }
+}
+
+@media (max-width: 850px) {
+  .metric-boxplot-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .metric-boxplot-panel {
+    height: 285px;
+  }
+}
+
+/* === SIX METRIC BOXPLOT PANELS END === */
+
 </style>
 </head>
 <body>
@@ -444,11 +498,11 @@ tr:hover td { background: var(--bg-tint); color: var(--text-primary); }
       </div>
       <div class="panel">
         <div class="panel-header">
-          <span class="panel-title">All metrics × all models</span>
+          <span class="panel-title">Metric-specific boxplots</span>
           <span class="panel-note">10 iterations per cell</span>
         </div>
         <div class="panel-note-good">
-          Median and IQR for Monte Carlo's 10 iterations.
+          Each metric is shown in its own boxplot panel with an independent y-axis. Runtime is shown on a log scale.
         </div>
         <div id="chart-allmetrics-box" class="chart chart-mega"></div>
       </div>
@@ -781,32 +835,327 @@ function calibrationCurveFromMetrics(brier, sens, prec) {
 class ChartRegistry { constructor() { this.m = new Map(); } register(n, s) { this.m.set(n, s); } get(n) { return this.m.get(n); } }
 const charts = new ChartRegistry();
 
-charts.register('allmetrics-box', { render(elId, iters, ctx) {
-  const metrics = ['BalancedAccuracy', 'AUC', 'Brier', 'Sensitivity', 'Precision'];
-  const traces = [];
-  ctx.models.forEach(m => {
-    const xs = []; const ys = [];
-    metrics.forEach(metric => {
-      iters.filter(r => r.Model === m).forEach(r => { xs.push(metric); ys.push(r[metric]); });
+charts.register('allmetrics-box', {
+  render(elId, iters, ctx) {
+    const root = document.getElementById(elId);
+
+    if (!root) {
+      console.warn(`Missing chart container: ${elId}`);
+      return;
+    }
+
+    const modelOrder = [
+      'TabPFN',
+      'L-SLR',
+      'Augmented_SLR',
+      'RandomForest',
+      'XGBoost',
+      'CatBoost'
+    ];
+
+    const selectedModels = modelOrder.filter(model =>
+      ctx.models.includes(model) &&
+      iters.some(r => r.Model === model)
+    );
+
+    const metrics = [
+      {
+        key: 'BalancedAccuracy',
+        title: 'Balanced Accuracy',
+        yTitle: 'Balanced Accuracy',
+        axisType: 'linear',
+        hoverDigits: 4
+      },
+      {
+        key: 'AUC',
+        title: 'AUC',
+        yTitle: 'AUC',
+        axisType: 'linear',
+        hoverDigits: 4
+      },
+      {
+        key: 'Brier',
+        title: 'Brier Score',
+        yTitle: 'Brier',
+        axisType: 'linear',
+        hoverDigits: 4
+      },
+      {
+        key: 'Sensitivity',
+        title: 'Sensitivity',
+        yTitle: 'Sensitivity',
+        axisType: 'linear',
+        hoverDigits: 4
+      },
+      {
+        key: 'Precision',
+        title: 'Precision',
+        yTitle: 'Precision',
+        axisType: 'linear',
+        hoverDigits: 4
+      },
+      {
+        key: 'Time_Seconds',
+        title: 'Runtime',
+        yTitle: 'Time (s, log)',
+        axisType: 'log',
+        hoverDigits: 3
+      }
+    ];
+
+    const finiteValues = (rows, key) =>
+      rows.map(r => Number(r[key])).filter(Number.isFinite);
+
+    const axisRange = (values, metric) => {
+      if (!values.length) return undefined;
+
+      if (metric.axisType === 'log') {
+        const positive = values.filter(v => v > 0);
+
+        if (!positive.length) return undefined;
+
+        const min = Math.min(...positive);
+        const max = Math.max(...positive);
+
+        const logMin = Math.log10(min);
+        const logMax = Math.log10(max);
+        const span = logMax - logMin;
+        const pad = Math.max(span * 0.14, 0.08);
+
+        return [logMin - pad, logMax + pad];
+      }
+
+      const min = Math.min(...values);
+      const max = Math.max(...values);
+
+      let span = max - min;
+
+      if (span === 0) {
+        span = Math.max(Math.abs(max) * 0.02, 0.005);
+      }
+
+      const pad = Math.max(span * 0.28, 0.004);
+
+      let lo = min - pad;
+      let hi = max + pad;
+
+      lo = Math.max(0, lo);
+      hi = Math.min(1, hi);
+
+      if (hi <= lo) {
+        hi = lo + 0.01;
+      }
+
+      return [lo, hi];
+    };
+
+    const currentRows = Array.isArray(iters) ? iters : [];
+
+    const existingPanel = root.closest('.panel');
+
+    if (existingPanel) {
+      const panelTitle = existingPanel.querySelector('.panel-title');
+      const panelNote = existingPanel.querySelector('.panel-note');
+      const caveat = existingPanel.querySelector('.panel-note-good, .panel-caveat');
+
+      if (panelTitle) {
+        panelTitle.textContent = 'Metric-specific boxplots';
+      }
+
+      if (panelNote) {
+        panelNote.textContent = '6 separate panels · selected models and sample sizes';
+      }
+
+      if (caveat) {
+        caveat.textContent =
+          'Each metric is shown in its own boxplot panel with an independent y-axis. Runtime is shown on a log scale.';
+      }
+    }
+
+    if (!currentRows.length || !selectedModels.length) {
+      root.innerHTML = `
+        <div style="padding: 18px; font-family: var(--font-mono); color: var(--text-tertiary);">
+          No iteration-level data available for the selected filters.
+        </div>
+      `;
+      return;
+    }
+
+    // Clean old Plotly content and old observers
+    if (root.__metricBoxResizeObserver) {
+      root.__metricBoxResizeObserver.disconnect();
+      root.__metricBoxResizeObserver = null;
+    }
+
+    try {
+      Plotly.purge(root);
+    } catch (err) {
+      // ignore if no existing Plotly instance
+    }
+
+    root.innerHTML = `
+      <div class="metric-boxplot-grid">
+        ${metrics.map((metric, index) => `
+          <div id="metric-boxplot-${index}" class="metric-boxplot-panel"></div>
+        `).join('')}
+      </div>
+    `;
+
+    const plotConfig = {
+      ...PLOT_CONFIG,
+      responsive: true,
+      displaylogo: false
+    };
+
+    const plots = [];
+
+    metrics.forEach((metric, metricIndex) => {
+      const plotId = `metric-boxplot-${metricIndex}`;
+      const valuesForRange = finiteValues(currentRows, metric.key);
+
+      const traces = selectedModels.map(model => {
+        const vals = currentRows
+          .filter(r => r.Model === model)
+          .map(r => Number(r[metric.key]))
+          .filter(Number.isFinite);
+
+        return {
+          type: 'box',
+          name: model,
+          legendgroup: model,
+          y: vals,
+          x: vals.map(() => model),
+
+          boxpoints: 'outliers',
+          boxmean: true,
+
+          marker: {
+            color: ctx.modelColors[model],
+            size: 4,
+            opacity: 0.58
+          },
+
+          line: {
+            color: ctx.modelColors[model],
+            width: 1.9
+          },
+
+          fillcolor: 'rgba(255,255,255,0.25)',
+
+          hovertemplate:
+            `<b>${model}</b><br>` +
+            `${metric.title}<br>` +
+            `Value: %{y:.${metric.hoverDigits}f}` +
+            `<extra></extra>`,
+
+          showlegend: false
+        };
+      });
+
+      const layout = {
+        title: {
+          text: `<b>${metric.title}</b>`,
+          font: {
+            family: 'Fraunces, Georgia, serif',
+            size: 15,
+            color: '#1a2030'
+          },
+          x: 0.04,
+          xanchor: 'left'
+        },
+
+        margin: {
+          l: 52,
+          r: 14,
+          t: 40,
+          b: 68
+        },
+
+        paper_bgcolor: 'rgba(0,0,0,0)',
+        plot_bgcolor: '#ffffff',
+
+        boxmode: 'group',
+        boxgap: 0.22,
+        boxgroupgap: 0.04,
+
+        xaxis: {
+          type: 'category',
+
+          // Critical: this prevents Plotly from hiding model categories
+          // when the browser is zoomed in or the panel becomes narrow.
+          tickmode: 'array',
+          tickvals: selectedModels,
+          ticktext: selectedModels,
+
+          categoryorder: 'array',
+          categoryarray: selectedModels,
+
+          tickangle: -32,
+          automargin: true,
+
+          tickfont: {
+            family: 'JetBrains Mono, monospace',
+            size: selectedModels.length > 5 ? 8 : 9,
+            color: '#515b6e'
+          },
+
+          gridcolor: '#eef1f5',
+          zeroline: false
+        },
+
+        yaxis: {
+          title: {
+            text: metric.yTitle,
+            font: {
+              family: 'Inter, sans-serif',
+              size: 11,
+              color: '#1a2030'
+            }
+          },
+
+          type: metric.axisType,
+          range: axisRange(valuesForRange, metric),
+          automargin: true,
+
+          tickfont: {
+            family: 'JetBrains Mono, monospace',
+            size: 9,
+            color: '#515b6e'
+          },
+
+          gridcolor: '#dfe4ec',
+          zeroline: false
+        }
+      };
+
+      const panel = document.getElementById(plotId);
+
+      if (panel) {
+        Plotly.newPlot(panel, traces, layout, plotConfig);
+        plots.push(panel);
+      }
     });
-    traces.push({
-      x: xs, y: ys, type: 'box', name: m,
-      marker: { color: ctx.modelColors[m], size: 3, opacity: 0.55 },
-      line: { color: ctx.modelColors[m], width: 1.2 },
-      fillcolor: ctx.modelColors[m] + '33',
-      boxpoints: 'outliers',
-      hovertemplate: `<b>${m}</b><br>%{x}: %{y:.4f}<extra></extra>`
+
+    // Dynamic resizing for browser zoom, sidebar changes, or container width changes.
+    const resizeAll = () => {
+      plots.forEach(plot => {
+        if (plot && plot.offsetParent !== null) {
+          Plotly.Plots.resize(plot);
+        }
+      });
+    };
+
+    root.__metricBoxResizeObserver = new ResizeObserver(() => {
+      window.requestAnimationFrame(resizeAll);
     });
-  });
-  Plotly.react(elId, traces, {
-    ...LAYOUT_BASE, boxmode: 'group',
-    showlegend: true,
-    legend: { font: FONT_MONO, orientation: 'h', y: -0.14, x: 0.5, xanchor: 'center' },
-    margin: { ...LAYOUT_BASE.margin, b: 80, t: 30 },
-    xaxis: { ...LAYOUT_BASE.xaxis, title: { text: 'Metric', font: FONT_AXIS_TITLE } },
-    yaxis: { ...LAYOUT_BASE.yaxis, title: { text: 'Value', font: FONT_AXIS_TITLE } }
-  }, PLOT_CONFIG);
-}});
+
+    root.__metricBoxResizeObserver.observe(root);
+
+    window.requestAnimationFrame(resizeAll);
+    setTimeout(resizeAll, 150);
+    setTimeout(resizeAll, 450);
+  }
+});
 
 charts.register('roc', { render(elId, summary, ctx) {
   const traces = [{
