@@ -464,7 +464,7 @@ tr:hover td { background: var(--bg-tint); color: var(--text-primary); }
             <span class="panel-note">binormal · anchored to mean AUC</span>
           </div>
           <div class="panel-caveat">
-            Reconstructed from each model's mean AUC using the binormal-equal-variance model (TPR = Φ(Φ⁻¹(FPR) + d')), since per-prediction scores aren't in the file. Curve area equals the reported AUC exactly.
+            Each curve shows false-positive rate versus mean true-positive rate.
           </div>
           <div id="chart-roc" class="chart chart-tall"></div>
         </div>
@@ -474,7 +474,7 @@ tr:hover td { background: var(--bg-tint); color: var(--text-primary); }
             <span class="panel-note">extracted predicted ↔ observed</span>
           </div>
           <div class="panel-caveat">
-            Extracted directly from the original PKL files using predicted probabilities and true labels. Each curve shows predicted probability versus observed probability.
+            Each curve shows predicted probability versus observed probability.
           </div>
           <div id="chart-calibration" class="chart chart-tall"></div>
         </div>
@@ -532,7 +532,7 @@ tr:hover td { background: var(--bg-tint); color: var(--text-primary); }
 
       <div class="section-header" style="margin-top: 6px;">
         <h2 class="section-title">Overall top-3 ranking</h2>
-        <span class="section-subtitle">summarized separately for each selected sample size</span>
+        <span class="section-subtitle">Performance points × selected sample sizes</span>
       </div>
       <div class="panel">
 <div id="ranking-cards"></div>
